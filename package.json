@@ -1,0 +1,93 @@
+{
+  "name": "agi-eval-sandbox",
+  "version": "0.1.0",
+  "description": "One-click evaluation environment bundling DeepEval, HELM-Lite, MT-Bench, and custom benchmarks",
+  "keywords": [
+    "ai",
+    "evaluation",
+    "llm",
+    "benchmarks",
+    "machine-learning",
+    "testing",
+    "automation",
+    "sdlc",
+    "devops"
+  ],
+  "homepage": "https://github.com/your-org/agi-eval-sandbox",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/agi-eval-sandbox.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-org/agi-eval-sandbox/issues"
+  },
+  "license": "MIT",
+  "author": "Daniel Schmidt",
+  "scripts": {
+    "dev": "concurrently \"npm run api:dev\" \"npm run dashboard:dev\"",
+    "api:dev": "cd api && uvicorn main:app --reload --host 0.0.0.0 --port 8000",
+    "dashboard:dev": "cd dashboard && npm run dev",
+    "build": "npm run build:api && npm run build:dashboard",
+    "build:api": "cd api && python -m build",
+    "build:dashboard": "cd dashboard && npm run build",
+    "test": "npm run test:api && npm run test:dashboard",
+    "test:api": "cd api && python -m pytest tests/ -v --cov=src --cov-report=html",
+    "test:dashboard": "cd dashboard && npm run test",
+    "test:e2e": "playwright test",
+    "lint": "npm run lint:api && npm run lint:dashboard",
+    "lint:api": "cd api && python -m flake8 src tests && python -m mypy src",
+    "lint:dashboard": "cd dashboard && npm run lint",
+    "format": "npm run format:api && npm run format:dashboard",
+    "format:api": "cd api && python -m black src tests && python -m isort src tests",
+    "format:dashboard": "cd dashboard && npm run format",
+    "typecheck": "npm run typecheck:api && npm run typecheck:dashboard",
+    "typecheck:api": "cd api && python -m mypy src tests",
+    "typecheck:dashboard": "cd dashboard && npm run typecheck",
+    "clean": "rm -rf node_modules api/dist api/.pytest_cache api/.mypy_cache dashboard/dist dashboard/node_modules",
+    "docs": "cd docs && mkdocs serve",
+    "docs:build": "cd docs && mkdocs build",
+    "docker:build": "docker build -t agi-eval-sandbox .",
+    "docker:run": "docker-compose up --build",
+    "docker:test": "docker-compose -f docker-compose.test.yml up --build --abort-on-container-exit",
+    "setup": "npm install && cd api && pip install -e \".[dev]\" && cd ../dashboard && npm install",
+    "db:migrate": "cd api && alembic upgrade head",
+    "db:seed": "cd api && python scripts/seed_database.py",
+    "benchmark:run": "cd api && python scripts/run_benchmark.py",
+    "security:scan": "npm audit && cd api && safety check && bandit -r src/",
+    "pre-commit": "pre-commit run --all-files",
+    "release": "semantic-release"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0",
+    "concurrently": "^8.2.2",
+    "husky": "^8.0.3",
+    "lint-staged": "^15.2.0",
+    "semantic-release": "^22.0.0",
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/git": "^10.0.1",
+    "@semantic-release/github": "^9.2.0"
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "lint-staged",
+      "commit-msg": "commitlint -E HUSKY_GIT_PARAMS"
+    }
+  },
+  "lint-staged": {
+    "*.{py}": [
+      "black",
+      "isort",
+      "flake8"
+    ],
+    "*.{js,ts,tsx,json,css,md}": [
+      "prettier --write"
+    ]
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "workspaces": [
+    "dashboard"
+  ]
+}
