@@ -1,0 +1,34 @@
+extends: relaxed
+
+rules:
+  line-length:
+    max: 120
+  truthy:
+    allowed-values: ['true', 'false']
+    check-keys: true
+  comments:
+    min-spaces-from-content: 1
+  comments-indentation: enable
+  document-start: disable
+  empty-lines:
+    max: 2
+    max-start: 0
+    max-end: 1
+  indentation:
+    spaces: 2
+    indent-sequences: true
+    check-multi-line-strings: false
+  key-duplicates: enable
+  new-line-at-end-of-file: enable
+  trailing-spaces: enable
+
+ignore: |
+  node_modules/
+  .venv/
+  venv/
+  .git/
+  build/
+  dist/
+  .pytest_cache/
+  .mypy_cache/
+  htmlcov/

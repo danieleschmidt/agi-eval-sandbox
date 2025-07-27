@@ -1,0 +1,144 @@
+groups:
+  - name: agi-eval.rules
+    rules:
+      # API Health
+      - alert: APIDown
+        expr: up{job="agi-eval-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "AGI Eval API is down"
+          description: "API has been down for more than 1 minute"
+
+      - alert: HighResponseTime
+        expr: histogram_quantile(0.95, http_request_duration_seconds_bucket{job="agi-eval-api"}) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High API response time"
+          description: "95th percentile response time is above 2 seconds"
+
+      # Database Health
+      - alert: DatabaseDown
+        expr: up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL database is down"
+          description: "Database has been unreachable for more than 1 minute"
+
+      - alert: DatabaseConnectionsHigh
+        expr: postgres_stat_database_connections{job="postgres"} > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High database connections"
+          description: "Database connections are above 80"
+
+      # Redis Health
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis is down"
+          description: "Redis has been down for more than 1 minute"
+
+      - alert: RedisMemoryHigh
+        expr: redis_memory_used_bytes{job="redis"} / redis_memory_max_bytes{job="redis"} > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis memory usage high"
+          description: "Redis memory usage is above 90%"
+
+      # Evaluation Metrics
+      - alert: EvaluationFailureRateHigh
+        expr: rate(evaluation_failures_total[5m]) / rate(evaluation_attempts_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High evaluation failure rate"
+          description: "Evaluation failure rate is above 10%"
+
+      - alert: EvaluationQueueBacklog
+        expr: evaluation_queue_size > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Evaluation queue backlog"
+          description: "Evaluation queue has more than 100 pending jobs"
+
+      # System Resources
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage is above 80% for 5 minutes"
+
+      - alert: HighMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemFree_bytes - node_memory_Buffers_bytes - node_memory_Cached_bytes) / node_memory_MemTotal_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is above 90%"
+
+      - alert: DiskSpaceLow
+        expr: node_filesystem_avail_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes{fstype!="tmpfs"} < 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Low disk space"
+          description: "Disk space is below 10%"
+
+      # Worker Health
+      - alert: CeleryWorkerDown
+        expr: celery_workers_active == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No active Celery workers"
+          description: "All Celery workers are down"
+
+      - alert: TaskProcessingDelay
+        expr: celery_task_queue_length > 50
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Task processing delay"
+          description: "Celery task queue length is above 50"
+
+      # Security Alerts
+      - alert: UnauthorizedAccess
+        expr: increase(http_requests_total{status=~"4.."}[5m]) > 100
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High number of 4xx errors"
+          description: "More than 100 4xx errors in the last 5 minutes"
+
+      - alert: PossibleDDoS
+        expr: rate(http_requests_total[1m]) > 1000
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Possible DDoS attack"
+          description: "Request rate is above 1000 requests per minute"

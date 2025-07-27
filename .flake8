@@ -1,0 +1,41 @@
+[flake8]
+max-line-length = 88
+extend-ignore = 
+    # E203: whitespace before ':' (conflicts with black)
+    E203,
+    # W503: line break before binary operator (conflicts with black)
+    W503,
+    # E501: line too long (handled by black)
+    E501,
+    # F401: imported but unused (handled by isort/autoflake)
+    F401
+exclude = 
+    .git,
+    __pycache__,
+    .venv,
+    venv,
+    .pytest_cache,
+    .mypy_cache,
+    build,
+    dist,
+    *.egg-info,
+    migrations,
+    .tox,
+    docs/conf.py
+per-file-ignores =
+    # Ignore import issues in __init__.py files
+    __init__.py:F401,F403
+    # Ignore unused imports in test files
+    test_*.py:F401,F811
+    tests/*.py:F401,F811
+    # Ignore complexity in settings files
+    *settings*.py:C901
+    # Ignore line length in migration files
+    *migrations*.py:E501
+max-complexity = 10
+import-order-style = google
+application-import-names = api,dashboard,tests
+docstring-convention = google
+statistics = True
+count = True
+show-source = True
