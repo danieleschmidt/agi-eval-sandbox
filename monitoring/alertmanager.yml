@@ -1,0 +1,250 @@
+# Alertmanager Configuration for AGI Evaluation Sandbox
+# ======================================================
+
+global:
+  # SMTP configuration for email alerts
+  smtp_smarthost: 'localhost:587'
+  smtp_from: 'alerts@agi-eval-sandbox.local'
+  smtp_auth_username: 'alerts@agi-eval-sandbox.local'
+  smtp_auth_password: 'password'
+  smtp_require_tls: true
+
+  # Global notification settings
+  resolve_timeout: 5m
+
+# Templates
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# Routing tree
+route:
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 1h
+  receiver: 'web.hook.default'
+  
+  routes:
+    # Critical alerts - immediate notification
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      group_wait: 5s
+      repeat_interval: 30m
+      continue: true
+    
+    # Warning alerts - standard notification
+    - match:
+        severity: warning
+      receiver: 'warning-alerts'
+      group_wait: 30s
+      repeat_interval: 2h
+    
+    # Security alerts - immediate notification
+    - match:
+        category: security
+      receiver: 'security-alerts'
+      group_wait: 5s
+      repeat_interval: 15m
+      continue: true
+    
+    # Performance alerts
+    - match:
+        category: performance
+      receiver: 'performance-alerts'
+      group_wait: 1m
+      repeat_interval: 4h
+    
+    # Infrastructure alerts
+    - match:
+        category: infrastructure
+      receiver: 'infrastructure-alerts'
+      group_wait: 1m
+      repeat_interval: 2h
+    
+    # Application alerts
+    - match:
+        category: application
+      receiver: 'application-alerts'
+      group_wait: 30s
+      repeat_interval: 1h
+
+# Inhibition rules - suppress certain alerts when others are firing
+inhibit_rules:
+  # If the entire cluster is down, don't alert on individual services
+  - source_match:
+      alertname: 'ClusterDown'
+    target_match_re:
+      alertname: '(ServiceDown|HighLatency|DatabaseConnectionError)'
+    equal: ['cluster']
+  
+  # If database is down, don't alert on connection errors
+  - source_match:
+      alertname: 'PostgreSQLDown'
+    target_match:
+      alertname: 'DatabaseConnectionError'
+    equal: ['instance']
+  
+  # If Redis is down, don't alert on cache errors
+  - source_match:
+      alertname: 'RedisDown'
+    target_match:
+      alertname: 'CacheError'
+    equal: ['instance']
+
+# Receivers - where alerts are sent
+receivers:
+  # Default webhook receiver
+  - name: 'web.hook.default'
+    webhook_configs:
+      - url: 'http://localhost:5001/webhook'
+        send_resolved: true
+        http_config:
+          bearer_token: 'your-webhook-token'
+        title: '{{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+
+  # Critical alerts - multiple channels
+  - name: 'critical-alerts'
+    email_configs:
+      - to: 'oncall@agi-eval-sandbox.local'
+        subject: '🚨 CRITICAL: {{ .GroupLabels.alertname }} in {{ .GroupLabels.cluster }}'
+        body: |
+          🚨 **CRITICAL ALERT**
+          
+          **Alert:** {{ .GroupLabels.alertname }}
+          **Cluster:** {{ .GroupLabels.cluster }}
+          **Severity:** {{ .CommonLabels.severity }}
+          
+          {{ range .Alerts }}
+          **Summary:** {{ .Annotations.summary }}
+          **Description:** {{ .Annotations.description }}
+          **Instance:** {{ .Labels.instance }}
+          **Started:** {{ .StartsAt.Format "2006-01-02 15:04:05 UTC" }}
+          {{ if .EndsAt }}**Ended:** {{ .EndsAt.Format "2006-01-02 15:04:05 UTC" }}{{ end }}
+          
+          **Labels:**
+          {{ range .Labels.SortedPairs }}• {{ .Name }}: {{ .Value }}
+          {{ end }}
+          {{ end }}
+          
+          **Runbook:** {{ .CommonAnnotations.runbook_url }}
+        html: |
+          <h2>🚨 CRITICAL ALERT</h2>
+          <p><strong>Alert:</strong> {{ .GroupLabels.alertname }}</p>
+          <p><strong>Cluster:</strong> {{ .GroupLabels.cluster }}</p>
+          {{ range .Alerts }}
+          <h3>{{ .Annotations.summary }}</h3>
+          <p>{{ .Annotations.description }}</p>
+          <p><strong>Instance:</strong> {{ .Labels.instance }}</p>
+          <p><strong>Started:</strong> {{ .StartsAt.Format "2006-01-02 15:04:05 UTC" }}</p>
+          {{ end }}
+    
+    slack_configs:
+      - api_url: 'YOUR_SLACK_WEBHOOK_URL'
+        channel: '#alerts-critical'
+        title: '🚨 Critical Alert: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          **{{ .Annotations.summary }}**
+          {{ .Annotations.description }}
+          Instance: {{ .Labels.instance }}
+          {{ end }}
+        color: 'danger'
+        send_resolved: true
+
+  # Warning alerts
+  - name: 'warning-alerts'
+    email_configs:
+      - to: 'team@agi-eval-sandbox.local'
+        subject: '⚠️ WARNING: {{ .GroupLabels.alertname }}'
+        body: |
+          ⚠️ **WARNING ALERT**
+          
+          {{ range .Alerts }}
+          **Summary:** {{ .Annotations.summary }}
+          **Description:** {{ .Annotations.description }}
+          **Instance:** {{ .Labels.instance }}
+          {{ end }}
+    
+    slack_configs:
+      - api_url: 'YOUR_SLACK_WEBHOOK_URL'
+        channel: '#alerts-warning'
+        title: '⚠️ Warning: {{ .GroupLabels.alertname }}'
+        color: 'warning'
+
+  # Security alerts
+  - name: 'security-alerts'
+    email_configs:
+      - to: 'security@agi-eval-sandbox.local'
+        subject: '🛡️ SECURITY ALERT: {{ .GroupLabels.alertname }}'
+        body: |
+          🛡️ **SECURITY ALERT**
+          
+          {{ range .Alerts }}
+          **Summary:** {{ .Annotations.summary }}
+          **Description:** {{ .Annotations.description }}
+          **Instance:** {{ .Labels.instance }}
+          **Severity:** {{ .Labels.severity }}
+          {{ end }}
+          
+          **Immediate Action Required**
+    
+    slack_configs:
+      - api_url: 'YOUR_SLACK_WEBHOOK_URL'
+        channel: '#security-alerts'
+        title: '🛡️ Security Alert: {{ .GroupLabels.alertname }}'
+        color: 'danger'
+
+  # Performance alerts
+  - name: 'performance-alerts'
+    slack_configs:
+      - api_url: 'YOUR_SLACK_WEBHOOK_URL'
+        channel: '#performance'
+        title: '📈 Performance Alert: {{ .GroupLabels.alertname }}'
+        color: 'warning'
+
+  # Infrastructure alerts
+  - name: 'infrastructure-alerts'
+    email_configs:
+      - to: 'devops@agi-eval-sandbox.local'
+        subject: '🏗️ Infrastructure Alert: {{ .GroupLabels.alertname }}'
+    
+    slack_configs:
+      - api_url: 'YOUR_SLACK_WEBHOOK_URL'
+        channel: '#infrastructure'
+        title: '🏗️ Infrastructure: {{ .GroupLabels.alertname }}'
+
+  # Application alerts
+  - name: 'application-alerts'
+    slack_configs:
+      - api_url: 'YOUR_SLACK_WEBHOOK_URL'
+        channel: '#application'
+        title: '🔧 Application: {{ .GroupLabels.alertname }}'
+
+# Time-based routing (optional)
+time_intervals:
+  - name: 'business-hours'
+    time_intervals:
+      - times:
+          - start_time: '09:00'
+            end_time: '17:00'
+        weekdays: ['monday:friday']
+        months: ['1:12']
+  
+  - name: 'after-hours'
+    time_intervals:
+      - times:
+          - start_time: '17:01'
+            end_time: '08:59'
+        weekdays: ['monday:friday']
+      - times:
+          - start_time: '00:00'
+            end_time: '23:59'
+        weekdays: ['saturday', 'sunday']
+
+# Silence configuration
+active_time_intervals: []
+
+# Mute time intervals (optional)
+mute_time_intervals: []

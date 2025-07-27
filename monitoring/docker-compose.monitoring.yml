@@ -1,0 +1,255 @@
+version: '3.8'
+
+services:
+  # ──────────────────────────────────────────────────────────────────────
+  # 📊 PROMETHEUS - METRICS COLLECTION
+  # ──────────────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: agi-eval-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--storage.tsdb.retention.size=10GB'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+      - '--log.level=info'
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  # ──────────────────────────────────────────────────────────────────────
+  # 📈 GRAFANA - VISUALIZATION
+  # ──────────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana-oss:10.0.0
+    container_name: agi-eval-grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel,grafana-worldmap-panel
+      - GF_FEATURE_TOGGLES_ENABLE=publicDashboards
+      - GF_LOG_LEVEL=info
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - monitoring
+    depends_on:
+      - prometheus
+
+  # ──────────────────────────────────────────────────────────────────────
+  # 🚨 ALERTMANAGER - ALERT ROUTING
+  # ──────────────────────────────────────────────────────────────────────
+  alertmanager:
+    image: prom/alertmanager:v0.25.0
+    container_name: agi-eval-alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--web.external-url=http://localhost:9093'
+      - '--log.level=info'
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9093/-/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  # ──────────────────────────────────────────────────────────────────────
+  # 📊 NODE EXPORTER - SYSTEM METRICS
+  # ──────────────────────────────────────────────────────────────────────
+  node-exporter:
+    image: prom/node-exporter:v1.6.0
+    container_name: agi-eval-node-exporter
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+      - '--web.listen-address=:9100'
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  # ──────────────────────────────────────────────────────────────────────
+  # 🐳 CADVISOR - CONTAINER METRICS
+  # ──────────────────────────────────────────────────────────────────────
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.0
+    container_name: agi-eval-cadvisor
+    ports:
+      - "8081:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    privileged: true
+    devices:
+      - /dev/kmsg
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  # ──────────────────────────────────────────────────────────────────────
+  # 📊 REDIS EXPORTER - REDIS METRICS
+  # ──────────────────────────────────────────────────────────────────────
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.52.0
+    container_name: agi-eval-redis-exporter
+    ports:
+      - "9121:9121"
+    environment:
+      - REDIS_ADDR=redis://redis:6379
+    restart: unless-stopped
+    networks:
+      - monitoring
+      - default
+
+  # ──────────────────────────────────────────────────────────────────────
+  # 📊 POSTGRES EXPORTER - DATABASE METRICS
+  # ──────────────────────────────────────────────────────────────────────
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.13.0
+    container_name: agi-eval-postgres-exporter
+    ports:
+      - "9187:9187"
+    environment:
+      - DATA_SOURCE_NAME=postgresql://postgres:postgres@postgres:5432/agi_eval?sslmode=disable
+    restart: unless-stopped
+    networks:
+      - monitoring
+      - default
+
+  # ──────────────────────────────────────────────────────────────────────
+  # 🔍 JAEGER - DISTRIBUTED TRACING
+  # ──────────────────────────────────────────────────────────────────────
+  jaeger:
+    image: jaegertracing/all-in-one:1.46.0
+    container_name: agi-eval-jaeger
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "6831:6831/udp"  # Jaeger agent UDP
+      - "6832:6832/udp"  # Jaeger agent UDP
+      - "14268:14268"    # Jaeger collector HTTP
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - LOG_LEVEL=info
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  # ──────────────────────────────────────────────────────────────────────
+  # 📋 LOKI - LOG AGGREGATION
+  # ──────────────────────────────────────────────────────────────────────
+  loki:
+    image: grafana/loki:2.8.0
+    container_name: agi-eval-loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  # ──────────────────────────────────────────────────────────────────────
+  # 📋 PROMTAIL - LOG COLLECTION
+  # ──────────────────────────────────────────────────────────────────────
+  promtail:
+    image: grafana/promtail:2.8.0
+    container_name: agi-eval-promtail
+    volumes:
+      - ./promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    command: -config.file=/etc/promtail/config.yml
+    restart: unless-stopped
+    networks:
+      - monitoring
+    depends_on:
+      - loki
+
+  # ──────────────────────────────────────────────────────────────────────
+  # 📊 PUSHGATEWAY - BATCH METRICS
+  # ──────────────────────────────────────────────────────────────────────
+  pushgateway:
+    image: prom/pushgateway:v1.6.0
+    container_name: agi-eval-pushgateway
+    ports:
+      - "9091:9091"
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  # ──────────────────────────────────────────────────────────────────────
+  # 📊 BLACKBOX EXPORTER - EXTERNAL MONITORING
+  # ──────────────────────────────────────────────────────────────────────
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.24.0
+    container_name: agi-eval-blackbox-exporter
+    ports:
+      - "9115:9115"
+    volumes:
+      - ./blackbox.yml:/etc/blackbox_exporter/config.yml:ro
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+volumes:
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  alertmanager_data:
+    driver: local
+  loki_data:
+    driver: local
+
+networks:
+  monitoring:
+    driver: bridge
+    name: agi-eval-monitoring
+  default:
+    external: true
+    name: agi-eval-sandbox_default

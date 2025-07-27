@@ -1,0 +1,247 @@
+# Promtail Configuration for AGI Evaluation Sandbox
+# =================================================
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # ──────────────────────────────────────────────────────────────────────
+  # 📋 SYSTEM LOGS
+  # ──────────────────────────────────────────────────────────────────────
+  - job_name: system
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: varlogs
+          __path__: /var/log/*log
+    pipeline_stages:
+      - match:
+          selector: '{filename="/var/log/syslog"}'
+          stages:
+            - regex:
+                expression: '^(?P<timestamp>\S+\s+\d+\s+\d+:\d+:\d+)\s+(?P<hostname>\S+)\s+(?P<service>\S+):\s+(?P<message>.*)$'
+            - timestamp:
+                source: timestamp
+                format: Jan  2 15:04:05
+            - labels:
+                hostname:
+                service:
+
+  # ──────────────────────────────────────────────────────────────────────
+  # 🐳 DOCKER CONTAINER LOGS
+  # ──────────────────────────────────────────────────────────────────────
+  - job_name: containers
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: containerlogs
+          __path__: /var/lib/docker/containers/*/*log
+    pipeline_stages:
+      # Extract container information from file path
+      - regex:
+          expression: '^/var/lib/docker/containers/(?P<container_id>[^/]+)/(?P<container_name>[^/]+)\.log$'
+      - json:
+          expressions:
+            output: log
+            stream: stream
+            time: time
+      - timestamp:
+          source: time
+          format: RFC3339Nano
+      - labels:
+          stream:
+          container_id:
+      - output:
+          source: output
+
+  # ──────────────────────────────────────────────────────────────────────
+  # 📊 APPLICATION LOGS - API SERVICE
+  # ──────────────────────────────────────────────────────────────────────
+  - job_name: agi-eval-api
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+        filters:
+          - name: name
+            values: ["agi-eval-api"]
+    relabel_configs:
+      - source_labels: ['__meta_docker_container_name']
+        target_label: 'container_name'
+      - source_labels: ['__meta_docker_container_id']
+        target_label: 'container_id'
+      - source_labels: ['__meta_docker_container_log_stream']
+        target_label: 'stream'
+    pipeline_stages:
+      # Parse JSON logs from FastAPI
+      - json:
+          expressions:
+            timestamp: time
+            level: level
+            logger: name
+            message: message
+            request_id: request_id
+            user_id: user_id
+            endpoint: endpoint
+            method: method
+            status_code: status_code
+            duration: duration_ms
+      - timestamp:
+          source: timestamp
+          format: RFC3339
+      - labels:
+          level:
+          logger:
+          endpoint:
+          method:
+      # Add severity level
+      - template:
+          source: severity
+          template: |
+            {{ if eq .level "ERROR" }}error{{ else if eq .level "WARN" }}warn{{ else if eq .level "INFO" }}info{{ else }}debug{{ end }}
+      - labels:
+          severity:
+
+  # ──────────────────────────────────────────────────────────────────────
+  # 🔄 CELERY WORKER LOGS
+  # ──────────────────────────────────────────────────────────────────────
+  - job_name: celery-workers
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+        filters:
+          - name: name
+            values: ["agi-eval-worker*"]
+    relabel_configs:
+      - source_labels: ['__meta_docker_container_name']
+        target_label: 'container_name'
+      - source_labels: ['__meta_docker_container_id']
+        target_label: 'container_id'
+    pipeline_stages:
+      # Parse Celery log format
+      - regex:
+          expression: '^\[(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}): (?P<level>\w+)/(?P<process>\w+)\] (?P<message>.*)$'
+      - timestamp:
+          source: timestamp
+          format: '2006-01-02 15:04:05,000'
+      - labels:
+          level:
+          process:
+
+  # ──────────────────────────────────────────────────────────────────────
+  # 🌐 NGINX ACCESS LOGS
+  # ──────────────────────────────────────────────────────────────────────
+  - job_name: nginx-access
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: nginx
+          service: nginx
+          log_type: access
+          __path__: /var/log/nginx/access.log
+    pipeline_stages:
+      # Parse nginx combined log format
+      - regex:
+          expression: '^(?P<remote_addr>\S+) - (?P<remote_user>\S+) \[(?P<timestamp>[^\]]+)\] "(?P<method>\S+) (?P<path>\S+) (?P<protocol>\S+)" (?P<status>\d+) (?P<bytes_sent>\d+) "(?P<referer>[^"]*)" "(?P<user_agent>[^"]*)"( "(?P<forwarded_for>[^"]*)")?'
+      - timestamp:
+          source: timestamp
+          format: '02/Jan/2006:15:04:05 -0700'
+      - labels:
+          method:
+          status:
+          path:
+      # Classify status codes
+      - template:
+          source: status_class
+          template: |
+            {{ if lt (atoi .status) 300 }}success{{ else if lt (atoi .status) 400 }}redirect{{ else if lt (atoi .status) 500 }}client_error{{ else }}server_error{{ end }}
+      - labels:
+          status_class:
+
+  # ──────────────────────────────────────────────────────────────────────
+  # 🌐 NGINX ERROR LOGS
+  # ──────────────────────────────────────────────────────────────────────
+  - job_name: nginx-error
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: nginx
+          service: nginx
+          log_type: error
+          __path__: /var/log/nginx/error.log
+    pipeline_stages:
+      # Parse nginx error log format
+      - regex:
+          expression: '^(?P<timestamp>\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}) \[(?P<level>\w+)\] (?P<pid>\d+)#(?P<tid>\d+): (?P<message>.*)$'
+      - timestamp:
+          source: timestamp
+          format: '2006/01/02 15:04:05'
+      - labels:
+          level:
+          pid:
+
+  # ──────────────────────────────────────────────────────────────────────
+  # 🐘 POSTGRESQL LOGS
+  # ──────────────────────────────────────────────────────────────────────
+  - job_name: postgresql
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+        filters:
+          - name: name
+            values: ["postgres*"]
+    relabel_configs:
+      - source_labels: ['__meta_docker_container_name']
+        target_label: 'container_name'
+    pipeline_stages:
+      # Parse PostgreSQL log format
+      - regex:
+          expression: '^(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} \w+) \[(?P<pid>\d+)\] (?P<level>\w+):  (?P<message>.*)$'
+      - timestamp:
+          source: timestamp
+          format: '2006-01-02 15:04:05.000 MST'
+      - labels:
+          level:
+          pid:
+
+  # ──────────────────────────────────────────────────────────────────────
+  # 📊 REDIS LOGS
+  # ──────────────────────────────────────────────────────────────────────
+  - job_name: redis
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+        filters:
+          - name: name
+            values: ["redis*"]
+    relabel_configs:
+      - source_labels: ['__meta_docker_container_name']
+        target_label: 'container_name'
+    pipeline_stages:
+      # Parse Redis log format
+      - regex:
+          expression: '^(?P<pid>\d+):(?P<role>\w+) (?P<timestamp>\d{2} \w{3} \d{4} \d{2}:\d{2}:\d{2}\.\d{3}) (?P<level>.) (?P<message>.*)$'
+      - timestamp:
+          source: timestamp
+          format: '02 Jan 2006 15:04:05.000'
+      - labels:
+          level:
+          role:
+          pid:
+
+# Global configuration
+global:
+  # How often to scrape log files
+  scrape_interval: 1m
+  # Maximum time to wait for log file changes
+  scrape_timeout: 10s

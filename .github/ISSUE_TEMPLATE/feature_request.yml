@@ -1,0 +1,220 @@
+name: 🚀 Feature Request
+description: Suggest a new feature or enhancement
+title: "🚀 [Feature]: "
+labels: ["enhancement", "triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting a new feature! Your ideas help make the AGI Evaluation Sandbox better for everyone.
+
+  - type: checkboxes
+    id: preliminary_checks
+    attributes:
+      label: 🔍 Preliminary Checks
+      description: Please confirm you have completed these steps
+      options:
+        - label: I have searched existing issues to ensure this feature hasn't been requested already
+          required: true
+        - label: I have checked the roadmap for planned features
+          required: true
+        - label: I have reviewed the documentation to understand current capabilities
+          required: true
+
+  - type: textarea
+    id: problem_description
+    attributes:
+      label: 🎯 Problem Statement
+      description: What problem does this feature solve? What pain point are you experiencing?
+      placeholder: |
+        As a [type of user], I want [what] so that [why].
+        
+        The current limitation is...
+        This causes issues because...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: 💡 Proposed Solution
+      description: Describe the feature you'd like to see implemented
+      placeholder: |
+        I would like to see...
+        This could work by...
+        The user experience would be...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: 🧩 Component
+      description: Which component would this feature affect?
+      options:
+        - API / Backend
+        - Dashboard / Frontend
+        - CLI Tool
+        - Documentation
+        - CI/CD Pipeline
+        - Docker / Deployment
+        - Database Schema
+        - Cache / Redis
+        - Monitoring & Alerts
+        - Security Features
+        - Evaluation Framework
+        - Model Integration
+        - Benchmark System
+        - Reporting & Analytics
+        - User Management
+        - Configuration
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: feature_type
+    attributes:
+      label: 🏷️ Feature Type
+      description: What type of feature is this?
+      options:
+        - New functionality
+        - Enhancement to existing feature
+        - User experience improvement
+        - Performance optimization
+        - Security enhancement
+        - Developer experience improvement
+        - Integration with external service
+        - Configuration option
+        - API extension
+        - UI/UX improvement
+        - Accessibility improvement
+        - Documentation improvement
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 📊 Priority
+      description: How important is this feature to you?
+      options:
+        - Low - Nice to have
+        - Medium - Would improve my workflow
+        - High - Important for my use case
+        - Critical - Blocking my adoption/usage
+    validations:
+      required: true
+
+  - type: textarea
+    id: user_stories
+    attributes:
+      label: 📖 User Stories
+      description: Detailed user stories or use cases
+      placeholder: |
+        **As a** data scientist
+        **I want** to compare multiple models side-by-side
+        **So that** I can quickly identify the best performing model
+        
+        **As a** ML engineer
+        **I want** to set up automated evaluation pipelines
+        **So that** I can continuously monitor model performance
+        
+        **Acceptance Criteria:**
+        - [ ] Feature works as described
+        - [ ] No performance regression
+        - [ ] Documentation is updated
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 🔄 Alternatives Considered
+      description: What alternative solutions or features have you considered?
+      placeholder: |
+        - Alternative approach 1: ...
+        - Alternative approach 2: ...
+        - Why the proposed solution is better: ...
+
+  - type: textarea
+    id: mockups
+    attributes:
+      label: 🎨 Mockups or Examples
+      description: Any mockups, wireframes, or examples from other tools
+      placeholder: |
+        Attach images or describe examples from other tools that implement similar features
+
+  - type: textarea
+    id: technical_details
+    attributes:
+      label: ⚙️ Technical Considerations
+      description: Any technical details, constraints, or implementation ideas
+      placeholder: |
+        - Potential implementation approach: ...
+        - Technical constraints to consider: ...
+        - Dependencies or prerequisites: ...
+        - Performance considerations: ...
+
+  - type: checkboxes
+    id: breaking_changes
+    attributes:
+      label: 💥 Breaking Changes
+      description: Would this feature require breaking changes?
+      options:
+        - label: This feature may require breaking changes to the API
+        - label: This feature may require database schema changes
+        - label: This feature may require configuration changes
+        - label: This feature should be backward compatible
+
+  - type: dropdown
+    id: implementation_effort
+    attributes:
+      label: 🛠️ Estimated Implementation Effort
+      description: How complex do you think this feature would be to implement?
+      options:
+        - Small - A few hours to a day
+        - Medium - A few days to a week
+        - Large - Multiple weeks
+        - Extra Large - Months of work
+        - Unknown - Need technical investigation
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: 🤝 Contribution
+      description: Would you like to contribute to implementing this feature?
+      options:
+        - label: I would be willing to submit a PR to implement this feature
+        - label: I would like to be assigned to work on this feature
+        - label: I can help with design and planning
+        - label: I can help with testing and feedback
+        - label: I need guidance on how to implement this
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: 📎 Additional Context
+      description: Any other context, links, or references
+      placeholder: |
+        - Related issues or discussions: ...
+        - External references or documentation: ...
+        - Similar features in other tools: ...
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        
+        ## 🚀 What happens next?
+        
+        1. **Triage**: Our team will review and label this feature request
+        2. **Discussion**: We may ask questions or request clarification
+        3. **Planning**: If accepted, we'll add it to our roadmap
+        4. **Implementation**: Development work begins (by team or community)
+        5. **Review**: Code review and testing
+        6. **Release**: Feature included in upcoming release
+        
+        Thank you for helping us improve the AGI Evaluation Sandbox! 🙏

@@ -1,0 +1,238 @@
+# Code Owners for AGI Evaluation Sandbox
+# ======================================
+# 
+# This file defines who is responsible for reviewing changes to specific
+# parts of the codebase. When a pull request is opened, the code owners
+# are automatically requested for review.
+#
+# Syntax: path-pattern @username @org/team-name
+# Documentation: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# ──────────────────────────────────────────────────────────────────────
+# 🌍 GLOBAL OWNERS (FALLBACK)
+# ──────────────────────────────────────────────────────────────────────
+# These users/teams are the default owners for everything in the repo
+# unless a later match takes precedence.
+* @danieleschmidt @terragon/core-team
+
+# ──────────────────────────────────────────────────────────────────────
+# 🏗️ CORE ARCHITECTURE & CONFIGURATION
+# ──────────────────────────────────────────────────────────────────────
+# Critical configuration files and architecture decisions
+/ARCHITECTURE.md @danieleschmidt @terragon/core-team @terragon/architects
+/docs/adr/ @danieleschmidt @terragon/core-team @terragon/architects
+/.github/ @danieleschmidt @terragon/devops-team
+/docker-compose*.yml @terragon/devops-team
+/Dockerfile @terragon/devops-team
+/Makefile @terragon/devops-team
+
+# ──────────────────────────────────────────────────────────────────────
+# 🐍 BACKEND / API
+# ──────────────────────────────────────────────────────────────────────
+# Python backend code and API endpoints
+/api/ @terragon/backend-team
+/api/src/ @terragon/backend-team
+/api/tests/ @terragon/backend-team @terragon/qa-team
+/api/pyproject.toml @terragon/backend-team
+/api/requirements*.txt @terragon/backend-team
+/api/alembic/ @terragon/backend-team @terragon/database-team
+
+# ──────────────────────────────────────────────────────────────────────
+# 🌐 FRONTEND / DASHBOARD
+# ──────────────────────────────────────────────────────────────────────
+# React frontend application
+/dashboard/ @terragon/frontend-team
+/dashboard/src/ @terragon/frontend-team
+/dashboard/tests/ @terragon/frontend-team @terragon/qa-team
+/dashboard/package*.json @terragon/frontend-team
+/dashboard/tsconfig*.json @terragon/frontend-team
+/dashboard/vite.config.ts @terragon/frontend-team
+
+# ──────────────────────────────────────────────────────────────────────
+# 🧪 TESTING & QUALITY ASSURANCE
+# ──────────────────────────────────────────────────────────────────────
+# Test configurations and test files
+/tests/ @terragon/qa-team
+/pytest.ini @terragon/qa-team @terragon/backend-team
+/playwright.config.ts @terragon/qa-team @terragon/frontend-team
+/.pre-commit-config.yaml @terragon/qa-team
+/conftest.py @terragon/qa-team
+
+# ──────────────────────────────────────────────────────────────────────
+# 🔄 CI/CD & AUTOMATION
+# ──────────────────────────────────────────────────────────────────────
+# GitHub Actions and automation workflows
+/.github/workflows/ @terragon/devops-team
+/.github/workflows/ci.yml @terragon/devops-team @terragon/qa-team
+/.github/workflows/cd.yml @terragon/devops-team @terragon/release-team
+/.github/workflows/security.yml @terragon/security-team @terragon/devops-team
+/.github/workflows/maintenance.yml @terragon/devops-team
+/.github/workflows/release.yml @terragon/release-team @terragon/devops-team
+
+# ──────────────────────────────────────────────────────────────────────
+# 🛡️ SECURITY
+# ──────────────────────────────────────────────────────────────────────
+# Security-related files and configurations
+/SECURITY.md @terragon/security-team
+/.secrets.baseline @terragon/security-team
+/.github/workflows/security.yml @terragon/security-team
+
+# ──────────────────────────────────────────────────────────────────────
+# 📊 MONITORING & OBSERVABILITY
+# ──────────────────────────────────────────────────────────────────────
+# Monitoring, logging, and observability configurations
+/monitoring/ @terragon/devops-team @terragon/sre-team
+/monitoring/prometheus.yml @terragon/sre-team
+/monitoring/grafana/ @terragon/sre-team
+/monitoring/alert_rules.yml @terragon/sre-team @terragon/on-call
+
+# ──────────────────────────────────────────────────────────────────────
+# 🗄️ DATABASE
+# ──────────────────────────────────────────────────────────────────────
+# Database schemas, migrations, and configurations
+/api/alembic/ @terragon/database-team @terragon/backend-team
+/api/src/database/ @terragon/database-team @terragon/backend-team
+/api/src/models/ @terragon/database-team @terragon/backend-team
+
+# ──────────────────────────────────────────────────────────────────────
+# 📚 DOCUMENTATION
+# ──────────────────────────────────────────────────────────────────────
+# Documentation files and content
+/README.md @terragon/docs-team @danieleschmidt
+/docs/ @terragon/docs-team
+/CONTRIBUTING.md @terragon/docs-team @terragon/community-team
+/CHANGELOG.md @terragon/release-team @terragon/docs-team
+/WORKFLOW_SETUP.md @terragon/docs-team @terragon/devops-team
+
+# ──────────────────────────────────────────────────────────────────────
+# 📦 PACKAGE MANAGEMENT & RELEASES
+# ──────────────────────────────────────────────────────────────────────
+# Package configuration and release management
+/package.json @terragon/release-team
+/.releaserc.js @terragon/release-team
+/api/pyproject.toml @terragon/backend-team @terragon/release-team
+/dashboard/package.json @terragon/frontend-team @terragon/release-team
+
+# ──────────────────────────────────────────────────────────────────────
+# 🔧 CONFIGURATION FILES
+# ──────────────────────────────────────────────────────────────────────
+# Various configuration files
+/.editorconfig @terragon/core-team
+/.gitignore @terragon/core-team
+/.dockerignore @terragon/devops-team
+/.env.example @terragon/backend-team @terragon/devops-team
+
+# ──────────────────────────────────────────────────────────────────────
+# 🧩 EVALUATION FRAMEWORK
+# ──────────────────────────────────────────────────────────────────────
+# Core evaluation logic and benchmark implementations
+/api/src/evaluation/ @terragon/ml-team @terragon/backend-team
+/api/src/benchmarks/ @terragon/ml-team @terragon/research-team
+/api/src/models/ @terragon/ml-team @terragon/backend-team
+
+# ──────────────────────────────────────────────────────────────────────
+# 🤖 MODEL INTEGRATIONS
+# ──────────────────────────────────────────────────────────────────────
+# Model provider integrations and API connections
+/api/src/providers/ @terragon/ml-team @terragon/integrations-team
+/api/src/adapters/ @terragon/ml-team @terragon/integrations-team
+
+# ──────────────────────────────────────────────────────────────────────
+# 📊 ANALYTICS & REPORTING
+# ──────────────────────────────────────────────────────────────────────
+# Analytics, metrics, and reporting functionality
+/api/src/analytics/ @terragon/data-team @terragon/backend-team
+/api/src/reporting/ @terragon/data-team @terragon/backend-team
+/dashboard/src/components/charts/ @terragon/frontend-team @terragon/data-team
+
+# ──────────────────────────────────────────────────────────────────────
+# 🎨 UI/UX COMPONENTS
+# ──────────────────────────────────────────────────────────────────────
+# User interface components and styling
+/dashboard/src/components/ @terragon/frontend-team @terragon/design-team
+/dashboard/src/styles/ @terragon/frontend-team @terragon/design-team
+/dashboard/src/assets/ @terragon/design-team
+
+# ──────────────────────────────────────────────────────────────────────
+# 🌐 API DEFINITIONS
+# ──────────────────────────────────────────────────────────────────────
+# API schemas, OpenAPI specs, and interface definitions
+/api/src/schemas/ @terragon/backend-team @terragon/api-team
+/api/src/routes/ @terragon/backend-team @terragon/api-team
+/api/openapi.yaml @terragon/api-team @terragon/docs-team
+
+# ──────────────────────────────────────────────────────────────────────
+# 🔌 INTEGRATIONS
+# ──────────────────────────────────────────────────────────────────────
+# Third-party integrations and webhooks
+/api/src/integrations/ @terragon/integrations-team @terragon/backend-team
+/api/src/webhooks/ @terragon/integrations-team @terragon/backend-team
+
+# ──────────────────────────────────────────────────────────────────────
+# 🚀 DEPLOYMENT & INFRASTRUCTURE
+# ──────────────────────────────────────────────────────────────────────
+# Deployment configurations and infrastructure as code
+/k8s/ @terragon/devops-team @terragon/sre-team
+/helm/ @terragon/devops-team @terragon/sre-team
+/terraform/ @terragon/devops-team @terragon/infrastructure-team
+/ansible/ @terragon/devops-team @terragon/infrastructure-team
+
+# ──────────────────────────────────────────────────────────────────────
+# 📋 PROJECT MANAGEMENT
+# ──────────────────────────────────────────────────────────────────────
+# Issue templates and project management files
+/.github/ISSUE_TEMPLATE/ @terragon/community-team @terragon/docs-team
+/.github/PULL_REQUEST_TEMPLATE.md @terragon/community-team @terragon/docs-team
+/.github/project-metrics.json @terragon/devops-team @terragon/data-team
+
+# ──────────────────────────────────────────────────────────────────────
+# 🏷️ SPECIAL FILES
+# ──────────────────────────────────────────────────────────────────────
+# Files that require special attention or broad review
+/LICENSE @danieleschmidt @terragon/legal-team
+/.github/CODEOWNERS @danieleschmidt @terragon/core-team @terragon/admin-team
+
+# ──────────────────────────────────────────────────────────────────────
+# 📱 MOBILE & CLI
+# ──────────────────────────────────────────────────────────────────────
+# CLI tools and mobile interfaces (if they exist)
+/cli/ @terragon/cli-team @terragon/backend-team
+/mobile/ @terragon/mobile-team
+
+# ──────────────────────────────────────────────────────────────────────
+# 🧪 EXPERIMENTAL FEATURES
+# ──────────────────────────────────────────────────────────────────────
+# Experimental or beta features
+/api/src/experimental/ @terragon/research-team @terragon/ml-team
+/dashboard/src/experimental/ @terragon/research-team @terragon/frontend-team
+
+# ──────────────────────────────────────────────────────────────────────
+# 📦 VENDOR/THIRD-PARTY
+# ──────────────────────────────────────────────────────────────────────
+# Vendor files and third-party dependencies
+/vendor/ @terragon/security-team @terragon/legal-team
+/third-party/ @terragon/security-team @terragon/legal-team
+
+# ══════════════════════════════════════════════════════════════════════
+# 🔧 NOTES FOR MAINTAINERS
+# ══════════════════════════════════════════════════════════════════════
+#
+# 1. Order matters! Rules are processed from top to bottom, with later
+#    matches taking precedence over earlier ones.
+#
+# 2. Teams should be created in GitHub organization settings before
+#    referencing them here.
+#
+# 3. Use broad patterns for high-level ownership, specific patterns for
+#    specialized expertise.
+#
+# 4. Consider the review burden when adding code owners - too many
+#    reviewers can slow down development.
+#
+# 5. Regular review and updates of this file ensure it stays current
+#    with the project structure and team organization.
+#
+# 6. Test changes to this file using GitHub's code owners validator
+#    or third-party tools before merging.
+#
+# ══════════════════════════════════════════════════════════════════════
