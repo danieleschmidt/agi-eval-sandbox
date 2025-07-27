@@ -1,0 +1,224 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: agi-eval-postgres
+    environment:
+      POSTGRES_DB: agi_eval_db
+      POSTGRES_USER: agi_eval
+      POSTGRES_PASSWORD: agi_eval_password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agi_eval -d agi_eval_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - agi-eval-network
+
+  # Redis Cache and Message Broker
+  redis:
+    image: redis:7-alpine
+    container_name: agi-eval-redis
+    command: redis-server --appendonly yes --requirepass agi_eval_redis_password
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - agi-eval-network
+
+  # Main Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: agi-eval-app
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql://agi_eval:agi_eval_password@postgres:5432/agi_eval_db
+      - REDIS_URL=redis://:agi_eval_redis_password@redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:-change-this-secret-key-in-production}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - CORS_ORIGINS=http://localhost:3000,http://localhost:8080
+      - LOG_LEVEL=INFO
+      - WORKER_CONCURRENCY=4
+    volumes:
+      - app_data:/app/data
+      - app_results:/app/results
+      - app_logs:/app/logs
+    ports:
+      - "8000:8000"
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "/healthcheck.py"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      - agi-eval-network
+
+  # Celery Worker for Background Tasks
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: agi-eval-worker
+    command: ["worker"]
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql://agi_eval:agi_eval_password@postgres:5432/agi_eval_db
+      - REDIS_URL=redis://:agi_eval_redis_password@redis:6379/0
+      - CELERY_BROKER_URL=redis://:agi_eval_redis_password@redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://:agi_eval_redis_password@redis:6379/2
+      - SECRET_KEY=${SECRET_KEY:-change-this-secret-key-in-production}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - LOG_LEVEL=INFO
+      - WORKER_CONCURRENCY=2
+    volumes:
+      - app_data:/app/data
+      - app_results:/app/results
+      - app_logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - agi-eval-network
+
+  # Celery Beat Scheduler
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: agi-eval-scheduler
+    command: ["scheduler"]
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql://agi_eval:agi_eval_password@postgres:5432/agi_eval_db
+      - REDIS_URL=redis://:agi_eval_redis_password@redis:6379/0
+      - CELERY_BROKER_URL=redis://:agi_eval_redis_password@redis:6379/1
+      - SECRET_KEY=${SECRET_KEY:-change-this-secret-key-in-production}
+      - LOG_LEVEL=INFO
+    volumes:
+      - app_logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - agi-eval-network
+
+  # Prometheus Monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: agi-eval-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+    networks:
+      - agi-eval-network
+
+  # Grafana Dashboard
+  grafana:
+    image: grafana/grafana:latest
+    container_name: agi-eval-grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - agi-eval-network
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: agi-eval-nginx
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - nginx_logs:/var/log/nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - app
+    restart: unless-stopped
+    networks:
+      - agi-eval-network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  app_data:
+    driver: local
+  app_results:
+    driver: local
+  app_logs:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  nginx_logs:
+    driver: local
+
+networks:
+  agi-eval-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

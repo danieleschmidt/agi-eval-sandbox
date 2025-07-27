@@ -205,3 +205,227 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# ==========================================
+# Node.js and Frontend
+# ==========================================
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# nyc test coverage
+.nyc_output
+
+# Dependency directories
+node_modules/
+jspm_packages/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Optional stylelint cache
+.stylelintcache
+
+# Next.js build output
+.next
+out/
+
+# Nuxt.js build / generate output
+.nuxt
+
+# Gatsby files
+.cache/
+public
+
+# Vuepress build output
+.vuepress/dist
+
+# Serverless directories
+.serverless/
+
+# FuseBox cache
+.fusebox/
+
+# DynamoDB Local files
+.dynamodb/
+
+# TernJS port file
+.tern-port
+
+# Stores VSCode versions used for testing VSCode extensions
+.vscode-test
+
+# yarn v2
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+.pnp.*
+
+# ==========================================
+# Application Specific
+# ==========================================
+
+# Data directories
+data/
+results/
+artifacts/
+outputs/
+models/
+checkpoints/
+
+# Configuration files with secrets
+config.local.yml
+config.local.yaml
+secrets.yml
+secrets.yaml
+.secrets
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Log files
+logs/
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+
+# Backup files
+*.backup
+*.bak
+backup/
+
+# ML/AI specific
+*.h5
+*.pkl
+*.pickle
+*.joblib
+wandb/
+mlruns/
+.neptune/
+
+# Testing artifacts
+test-results/
+playwright-report/
+test-results.xml
+
+# Build artifacts
+*.tar.gz
+*.zip
+
+# ==========================================
+# Cloud and Infrastructure
+# ==========================================
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+terraform.tfvars
+terraform.tfvars.json
+
+# Kubernetes
+kubeconfig
+*.kubeconfig
+
+# Ansible
+*.retry
+.vault_pass
+
+# ==========================================
+# Monitoring and Observability
+# ==========================================
+
+# Prometheus
+prometheus.yml.local
+alertmanager.yml.local
+
+# Grafana
+grafana.ini.local
+grafana.db
+
+# ==========================================
+# Security
+# ==========================================
+
+# Secret scanning baseline
+.secrets.baseline
+
+# Certificate files
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+
+# SSH keys
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+
+# ==========================================
+# Docker
+# ==========================================
+
+# Docker files
+Dockerfile.local
+docker-compose.override.yml
+docker-compose.local.yml
+.dockerignore.local
+
+# ==========================================
+# OS Generated Files
+# ==========================================
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
