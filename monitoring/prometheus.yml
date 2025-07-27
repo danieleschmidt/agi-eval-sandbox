@@ -1,0 +1,165 @@
+# Prometheus Configuration for AGI Evaluation Sandbox
+# ====================================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'agi-eval-sandbox'
+    environment: 'development'
+
+# Alerting rules files
+rule_files:
+  - "alert_rules.yml"
+  - "recording_rules.yml"
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+# Scrape configurations
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  # AGI Evaluation Sandbox API
+  - job_name: 'agi-eval-api'
+    static_configs:
+      - targets: ['app:9090']  # Metrics endpoint on app service
+    scrape_interval: 15s
+    metrics_path: /metrics
+    honor_labels: true
+    scrape_timeout: 10s
+    params:
+      module: [http_2xx]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: app:9090
+
+  # Celery Workers
+  - job_name: 'celery-workers'
+    static_configs:
+      - targets: ['worker:9090']
+    scrape_interval: 15s
+    metrics_path: /metrics
+    honor_labels: true
+
+  # PostgreSQL Database
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres_exporter:9187']
+    scrape_interval: 30s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        regex: '(.+)'
+        replacement: 'postgres:5432'
+
+  # Redis
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis_exporter:9121']
+    scrape_interval: 30s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        regex: '(.+)'
+        replacement: 'redis:6379'
+
+  # Node Exporter (System metrics)
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node_exporter:9100']
+    scrape_interval: 30s
+
+  # cAdvisor (Container metrics)
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  # Nginx metrics
+  - job_name: 'nginx'
+    static_configs:
+      - targets: ['nginx_exporter:9113']
+    scrape_interval: 30s
+
+  # Custom application metrics
+  - job_name: 'agi-eval-custom'
+    static_configs:
+      - targets: ['app:8000']
+    scrape_interval: 15s
+    metrics_path: /api/v1/metrics
+    honor_labels: true
+    params:
+      format: ['prometheus']
+
+  # Blackbox exporter for endpoint monitoring
+  - job_name: 'blackbox-http'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+        - http://app:8000/health
+        - http://app:8000/api/v1/health
+        - http://nginx:80/health
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox_exporter:9115
+
+  # SSL certificate monitoring
+  - job_name: 'blackbox-ssl'
+    metrics_path: /probe
+    params:
+      module: [tcp_connect]
+    static_configs:
+      - targets:
+        - app:8000
+        - postgres:5432
+        - redis:6379
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox_exporter:9115
+
+# Storage configuration
+storage:
+  tsdb:
+    path: /prometheus
+    retention.time: 30d
+    retention.size: 10GB
+    wal-compression: true
+
+# Performance tuning
+query:
+  max_concurrency: 20
+  timeout: 2m
+  max_samples: 50000000
+
+# Feature flags
+enable_lifecycle: true
+web.enable-admin-api: false
+web.enable-remote-shutdown: false
+
+# External URL (update for production)
+web.external-url: http://localhost:9090
