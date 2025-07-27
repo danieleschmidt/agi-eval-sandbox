@@ -1,0 +1,405 @@
+name: Dependency Updates
+
+on:
+  schedule:
+    # Run every Monday at 6 AM UTC
+    - cron: '0 6 * * MON'
+  workflow_dispatch:
+    inputs:
+      update_type:
+        description: 'Type of updates to perform'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - all
+
+jobs:
+  # ===========================================
+  # Python Dependencies
+  # ===========================================
+  
+  update-python-deps:
+    name: Update Python Dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+    
+    - name: Install update tools
+      run: |
+        python -m pip install --upgrade pip
+        pip install pip-tools pur
+    
+    - name: Update requirements.txt
+      run: |
+        UPDATE_TYPE="${{ github.event.inputs.update_type || 'patch' }}"
+        
+        case $UPDATE_TYPE in
+          patch)
+            pur -r requirements.txt --patch
+            ;;
+          minor)
+            pur -r requirements.txt --minor
+            ;;
+          major)
+            pur -r requirements.txt --major
+            ;;
+          all)
+            pur -r requirements.txt
+            ;;
+        esac
+    
+    - name: Update requirements-dev.txt
+      run: |
+        UPDATE_TYPE="${{ github.event.inputs.update_type || 'patch' }}"
+        
+        case $UPDATE_TYPE in
+          patch)
+            pur -r requirements-dev.txt --patch
+            ;;
+          minor)
+            pur -r requirements-dev.txt --minor
+            ;;
+          major)
+            pur -r requirements-dev.txt --major
+            ;;
+          all)
+            pur -r requirements-dev.txt
+            ;;
+        esac
+    
+    - name: Test updated dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
+        python -c "import sys; print(f'Python {sys.version} - Dependencies installed successfully')"
+    
+    - name: Check for security vulnerabilities
+      run: |
+        pip install safety
+        safety check --json --output safety-report.json || true
+        safety check
+    
+    - name: Create pull request for Python updates
+      uses: peter-evans/create-pull-request@v5
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: "chore: update Python dependencies (${{ github.event.inputs.update_type || 'patch' }})"
+        title: "🔄 Update Python Dependencies (${{ github.event.inputs.update_type || 'patch' }})"
+        body: |
+          ## Python Dependency Updates
+          
+          This PR updates Python dependencies with **${{ github.event.inputs.update_type || 'patch' }}** level changes.
+          
+          ### Changes Made
+          - Updated `requirements.txt`
+          - Updated `requirements-dev.txt`
+          - Verified compatibility with Python 3.11
+          
+          ### Security Check
+          - [x] Safety vulnerability scan performed
+          - [x] Dependencies tested successfully
+          
+          ### Automated Checks
+          - [ ] All CI checks pass
+          - [ ] No breaking changes detected
+          
+          ---
+          *This PR was created automatically by the dependency update workflow.*
+        branch: update/python-dependencies-${{ github.event.inputs.update_type || 'patch' }}
+        labels: |
+          dependencies
+          python
+          automated
+        reviewers: |
+          maintainers-team
+        assignees: |
+          ${{ github.actor }}
+
+  # ===========================================
+  # Node.js Dependencies
+  # ===========================================
+  
+  update-nodejs-deps:
+    name: Update Node.js Dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+    
+    - name: Install current dependencies
+      run: npm ci
+    
+    - name: Update dependencies
+      run: |
+        UPDATE_TYPE="${{ github.event.inputs.update_type || 'patch' }}"
+        
+        case $UPDATE_TYPE in
+          patch)
+            npx npm-check-updates --target patch -u
+            ;;
+          minor)
+            npx npm-check-updates --target minor -u
+            ;;
+          major)
+            npx npm-check-updates --target latest -u
+            ;;
+          all)
+            npx npm-check-updates -u
+            ;;
+        esac
+    
+    - name: Install updated dependencies
+      run: |
+        rm -rf node_modules package-lock.json
+        npm install
+    
+    - name: Run tests with updated dependencies
+      run: |
+        npm run typecheck
+        npm test -- --watchAll=false
+    
+    - name: Check for security vulnerabilities
+      run: |
+        npm audit --audit-level moderate --json > npm-audit-report.json || true
+        npm audit --audit-level moderate
+    
+    - name: Create pull request for Node.js updates
+      uses: peter-evans/create-pull-request@v5
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: "chore: update Node.js dependencies (${{ github.event.inputs.update_type || 'patch' }})"
+        title: "🔄 Update Node.js Dependencies (${{ github.event.inputs.update_type || 'patch' }})"
+        body: |
+          ## Node.js Dependency Updates
+          
+          This PR updates Node.js dependencies with **${{ github.event.inputs.update_type || 'patch' }}** level changes.
+          
+          ### Changes Made
+          - Updated `package.json`
+          - Updated `package-lock.json`
+          - Verified TypeScript compatibility
+          
+          ### Security Check
+          - [x] npm audit performed
+          - [x] Tests pass with updated dependencies
+          
+          ### Automated Checks
+          - [ ] All CI checks pass
+          - [ ] No breaking changes detected
+          
+          ---
+          *This PR was created automatically by the dependency update workflow.*
+        branch: update/nodejs-dependencies-${{ github.event.inputs.update_type || 'patch' }}
+        labels: |
+          dependencies
+          nodejs
+          automated
+        reviewers: |
+          maintainers-team
+        assignees: |
+          ${{ github.actor }}
+
+  # ===========================================
+  # Docker Base Images
+  # ===========================================
+  
+  update-docker-images:
+    name: Update Docker Base Images
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Check for updated base images
+      id: check-images
+      run: |
+        # Extract current base images from Dockerfile
+        PYTHON_IMAGE=$(grep "FROM python:" Dockerfile | head -1 | awk '{print $2}')
+        NODE_IMAGE=$(grep "FROM node:" Dockerfile | head -1 | awk '{print $2}')
+        
+        echo "current-python=$PYTHON_IMAGE" >> $GITHUB_OUTPUT
+        echo "current-node=$NODE_IMAGE" >> $GITHUB_OUTPUT
+        
+        # Check for latest versions
+        LATEST_PYTHON=$(curl -s "https://registry.hub.docker.com/v2/repositories/library/python/tags?page_size=100" | jq -r '.results[].name' | grep "^3.11.*-slim$" | head -1)
+        LATEST_NODE=$(curl -s "https://registry.hub.docker.com/v2/repositories/library/node/tags?page_size=100" | jq -r '.results[].name' | grep "^18.*-alpine$" | head -1)
+        
+        echo "latest-python=python:$LATEST_PYTHON" >> $GITHUB_OUTPUT
+        echo "latest-node=node:$LATEST_NODE" >> $GITHUB_OUTPUT
+        
+        # Check if updates are needed
+        if [[ "$PYTHON_IMAGE" != "python:$LATEST_PYTHON" ]]; then
+          echo "python-update-needed=true" >> $GITHUB_OUTPUT
+        else
+          echo "python-update-needed=false" >> $GITHUB_OUTPUT
+        fi
+        
+        if [[ "$NODE_IMAGE" != "node:$LATEST_NODE" ]]; then
+          echo "node-update-needed=true" >> $GITHUB_OUTPUT
+        else
+          echo "node-update-needed=false" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Update Dockerfile
+      if: steps.check-images.outputs.python-update-needed == 'true' || steps.check-images.outputs.node-update-needed == 'true'
+      run: |
+        if [[ "${{ steps.check-images.outputs.python-update-needed }}" == "true" ]]; then
+          sed -i "s|FROM python:.*-slim as python-builder|FROM ${{ steps.check-images.outputs.latest-python }} as python-builder|" Dockerfile
+          sed -i "s|FROM python:.*-slim as production|FROM ${{ steps.check-images.outputs.latest-python }} as production|" Dockerfile
+        fi
+        
+        if [[ "${{ steps.check-images.outputs.node-update-needed }}" == "true" ]]; then
+          sed -i "s|FROM node:.*-alpine as node-builder|FROM ${{ steps.check-images.outputs.latest-node }} as node-builder|" Dockerfile
+        fi
+    
+    - name: Test Docker build
+      if: steps.check-images.outputs.python-update-needed == 'true' || steps.check-images.outputs.node-update-needed == 'true'
+      run: |
+        docker build --target python-builder -t test-python-builder .
+        docker build --target node-builder -t test-node-builder .
+        docker build -t test-production .
+    
+    - name: Create pull request for Docker updates
+      if: steps.check-images.outputs.python-update-needed == 'true' || steps.check-images.outputs.node-update-needed == 'true'
+      uses: peter-evans/create-pull-request@v5
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: "chore: update Docker base images"
+        title: "🐳 Update Docker Base Images"
+        body: |
+          ## Docker Base Image Updates
+          
+          This PR updates Docker base images to their latest stable versions.
+          
+          ### Changes Made
+          ${{ steps.check-images.outputs.python-update-needed == 'true' && format('- Python: `{0}` → `{1}`', steps.check-images.outputs.current-python, steps.check-images.outputs.latest-python) || '' }}
+          ${{ steps.check-images.outputs.node-update-needed == 'true' && format('- Node.js: `{0}` → `{1}`', steps.check-images.outputs.current-node, steps.check-images.outputs.latest-node) || '' }}
+          
+          ### Verification
+          - [x] Docker build tested successfully
+          - [x] All build stages complete without errors
+          
+          ### Security Benefits
+          - Latest security patches included
+          - Reduced attack surface
+          - Updated system packages
+          
+          ---
+          *This PR was created automatically by the dependency update workflow.*
+        branch: update/docker-base-images
+        labels: |
+          dependencies
+          docker
+          automated
+        reviewers: |
+          maintainers-team
+        assignees: |
+          ${{ github.actor }}
+
+  # ===========================================
+  # GitHub Actions
+  # ===========================================
+  
+  update-github-actions:
+    name: Update GitHub Actions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Update GitHub Actions
+      uses: renovatebot/github-action@v39.2.0
+      with:
+        configurationFile: .github/renovate.json
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Create pull request for Actions updates
+      uses: peter-evans/create-pull-request@v5
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: "chore: update GitHub Actions"
+        title: "⚡ Update GitHub Actions"
+        body: |
+          ## GitHub Actions Updates
+          
+          This PR updates GitHub Actions to their latest versions.
+          
+          ### Security Benefits
+          - Latest security patches
+          - Improved performance
+          - New features and bug fixes
+          
+          ### Automated Checks
+          - [ ] All workflows validate successfully
+          - [ ] No breaking changes detected
+          
+          ---
+          *This PR was created automatically by the dependency update workflow.*
+        branch: update/github-actions
+        labels: |
+          dependencies
+          github-actions
+          automated
+        reviewers: |
+          maintainers-team
+        assignees: |
+          ${{ github.actor }}
+
+  # ===========================================
+  # Summary Report
+  # ===========================================
+  
+  summary-report:
+    name: Generate Summary Report
+    runs-on: ubuntu-latest
+    needs: [update-python-deps, update-nodejs-deps, update-docker-images, update-github-actions]
+    if: always()
+    timeout-minutes: 5
+    
+    steps:
+    - name: Generate summary
+      run: |
+        echo "### 🔄 Dependency Update Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Component | Status | Notes |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----------|--------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Python Dependencies | ${{ needs.update-python-deps.result == 'success' && '✅ Success' || '❌ Failed' }} | ${{ needs.update-python-deps.result == 'success' && 'PR created if updates available' || 'Check logs for details' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Node.js Dependencies | ${{ needs.update-nodejs-deps.result == 'success' && '✅ Success' || '❌ Failed' }} | ${{ needs.update-nodejs-deps.result == 'success' && 'PR created if updates available' || 'Check logs for details' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Docker Images | ${{ needs.update-docker-images.result == 'success' && '✅ Success' || '❌ Failed' }} | ${{ needs.update-docker-images.result == 'success' && 'PR created if updates available' || 'Check logs for details' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| GitHub Actions | ${{ needs.update-github-actions.result == 'success' && '✅ Success' || '❌ Failed' }} | ${{ needs.update-github-actions.result == 'success' && 'PR created if updates available' || 'Check logs for details' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Update Type**: ${{ github.event.inputs.update_type || 'patch' }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Triggered**: ${{ github.event_name == 'schedule' && 'Automatically (scheduled)' || 'Manually' }}" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,519 @@
+name: Release & Deploy
+
+on:
+  push:
+    tags:
+      - 'v*'
+  release:
+    types: [published]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ===========================================
+  # Validate Release
+  # ===========================================
+  
+  validate-release:
+    name: Validate Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is-prerelease: ${{ steps.version.outputs.prerelease }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Extract version
+      id: version
+      run: |
+        if [[ $GITHUB_REF == refs/tags/* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          
+          # Check if it's a prerelease (contains alpha, beta, rc)
+          if [[ $VERSION =~ (alpha|beta|rc) ]]; then
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+          fi
+        else
+          echo "version=unknown" >> $GITHUB_OUTPUT
+          echo "prerelease=false" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Validate version format
+      run: |
+        VERSION="${{ steps.version.outputs.version }}"
+        if ! [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+(\.[0-9]+)?)?$ ]]; then
+          echo "Invalid version format: $VERSION"
+          echo "Expected format: X.Y.Z or X.Y.Z-prerelease"
+          exit 1
+        fi
+        echo "Valid version: $VERSION"
+    
+    - name: Check changelog
+      run: |
+        if [ ! -f CHANGELOG.md ]; then
+          echo "CHANGELOG.md not found"
+          exit 1
+        fi
+        
+        VERSION="${{ steps.version.outputs.version }}"
+        if ! grep -q "## \[${VERSION}\]" CHANGELOG.md; then
+          echo "Changelog entry for version $VERSION not found"
+          exit 1
+        fi
+        echo "Changelog entry found for version $VERSION"
+
+  # ===========================================
+  # Build Release Assets
+  # ===========================================
+  
+  build-release:
+    name: Build Release Assets
+    runs-on: ubuntu-latest
+    needs: validate-release
+    timeout-minutes: 30
+    
+    strategy:
+      matrix:
+        platform:
+          - linux/amd64
+          - linux/arm64
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip build wheel
+        pip install -r requirements.txt
+        npm ci
+    
+    - name: Build Python package
+      run: |
+        python -m build
+        # Create distribution info
+        echo "VERSION=${{ needs.validate-release.outputs.version }}" > dist/VERSION
+        echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> dist/VERSION
+        echo "GIT_COMMIT=${{ github.sha }}" >> dist/VERSION
+    
+    - name: Build dashboard
+      run: |
+        npm run build
+        # Package dashboard build
+        tar -czf dist/dashboard-${{ needs.validate-release.outputs.version }}.tar.gz -C dashboard/dist .
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=semver,pattern={{major}},enable=${{ !needs.validate-release.outputs.is-prerelease }}
+          type=raw,value=latest,enable=${{ !needs.validate-release.outputs.is-prerelease }}
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        platforms: ${{ matrix.platform }}
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        build-args: |
+          VERSION=${{ needs.validate-release.outputs.version }}
+          BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
+          GIT_COMMIT=${{ github.sha }}
+    
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: release-assets-${{ strategy.job-index }}
+        path: dist/
+        retention-days: 30
+
+  # ===========================================
+  # Security Scan Release
+  # ===========================================
+  
+  security-scan-release:
+    name: Security Scan Release
+    runs-on: ubuntu-latest
+    needs: [validate-release, build-release]
+    timeout-minutes: 15
+    
+    steps:
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.validate-release.outputs.version }}
+        format: 'table'
+        exit-code: '1'
+        ignore-unfixed: true
+        vuln-type: 'os,library'
+        severity: 'CRITICAL,HIGH'
+    
+    - name: Generate SBOM
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.validate-release.outputs.version }}
+        format: 'spdx-json'
+        output: 'sbom.spdx.json'
+    
+    - name: Upload SBOM
+      uses: actions/upload-artifact@v3
+      with:
+        name: sbom
+        path: sbom.spdx.json
+        retention-days: 90
+
+  # ===========================================
+  # Create GitHub Release
+  # ===========================================
+  
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [validate-release, build-release, security-scan-release]
+    timeout-minutes: 10
+    
+    outputs:
+      release-id: ${{ steps.create-release.outputs.id }}
+      upload-url: ${{ steps.create-release.outputs.upload_url }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Download build artifacts
+      uses: actions/download-artifact@v3
+      with:
+        pattern: release-assets-*
+        merge-multiple: true
+        path: dist/
+    
+    - name: Download SBOM
+      uses: actions/download-artifact@v3
+      with:
+        name: sbom
+        path: security/
+    
+    - name: Generate release notes
+      id: release-notes
+      run: |
+        VERSION="${{ needs.validate-release.outputs.version }}"
+        
+        # Extract changelog for this version
+        awk "/## \[${VERSION}\]/,/## \[.*\]/ { if (/## \[${VERSION}\]/) print; else if (/## \[.*\]/) exit; else print }" CHANGELOG.md > release-notes.md
+        
+        # Add build information
+        echo "" >> release-notes.md
+        echo "## Build Information" >> release-notes.md
+        echo "- **Version**: ${VERSION}" >> release-notes.md
+        echo "- **Build Date**: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> release-notes.md
+        echo "- **Git Commit**: ${{ github.sha }}" >> release-notes.md
+        echo "" >> release-notes.md
+        echo "## Docker Images" >> release-notes.md
+        echo '```' >> release-notes.md
+        echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}" >> release-notes.md
+        echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> release-notes.md
+        echo '```' >> release-notes.md
+        
+        # Set output
+        echo "notes<<EOF" >> $GITHUB_OUTPUT
+        cat release-notes.md >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+    
+    - name: Create GitHub Release
+      id: create-release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: v${{ needs.validate-release.outputs.version }}
+        release_name: AGI Evaluation Sandbox v${{ needs.validate-release.outputs.version }}
+        body: ${{ steps.release-notes.outputs.notes }}
+        draft: false
+        prerelease: ${{ needs.validate-release.outputs.is-prerelease }}
+    
+    - name: Upload Python wheel
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create-release.outputs.upload_url }}
+        asset_path: dist/agi_eval_sandbox-${{ needs.validate-release.outputs.version }}-py3-none-any.whl
+        asset_name: agi_eval_sandbox-${{ needs.validate-release.outputs.version }}-py3-none-any.whl
+        asset_content_type: application/zip
+    
+    - name: Upload source distribution
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create-release.outputs.upload_url }}
+        asset_path: dist/agi_eval_sandbox-${{ needs.validate-release.outputs.version }}.tar.gz
+        asset_name: agi_eval_sandbox-${{ needs.validate-release.outputs.version }}.tar.gz
+        asset_content_type: application/gzip
+    
+    - name: Upload dashboard build
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create-release.outputs.upload_url }}
+        asset_path: dist/dashboard-${{ needs.validate-release.outputs.version }}.tar.gz
+        asset_name: dashboard-${{ needs.validate-release.outputs.version }}.tar.gz
+        asset_content_type: application/gzip
+    
+    - name: Upload SBOM
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create-release.outputs.upload_url }}
+        asset_path: security/sbom.spdx.json
+        asset_name: sbom-${{ needs.validate-release.outputs.version }}.spdx.json
+        asset_content_type: application/json
+
+  # ===========================================
+  # Deploy to Production
+  # ===========================================
+  
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [validate-release, create-release]
+    if: ${{ !needs.validate-release.outputs.is-prerelease }}
+    environment: production
+    timeout-minutes: 30
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Deploy to production
+      run: |
+        echo "Deploying version ${{ needs.validate-release.outputs.version }} to production..."
+        # Add your production deployment commands here
+        # Example: kubectl, helm, or cloud provider specific deployment
+    
+    - name: Run post-deployment tests
+      run: |
+        echo "Running post-deployment verification..."
+        # Add verification tests here
+    
+    - name: Update production status
+      if: success()
+      run: |
+        echo "Production deployment successful"
+        # Add success notification here
+    
+    - name: Rollback on failure
+      if: failure()
+      run: |
+        echo "Production deployment failed, initiating rollback..."
+        # Add rollback logic here
+
+  # ===========================================
+  # Publish to Package Registries
+  # ===========================================
+  
+  publish-packages:
+    name: Publish Packages
+    runs-on: ubuntu-latest
+    needs: [validate-release, create-release]
+    if: ${{ !needs.validate-release.outputs.is-prerelease }}
+    timeout-minutes: 15
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Download build artifacts
+      uses: actions/download-artifact@v3
+      with:
+        pattern: release-assets-*
+        merge-multiple: true
+        path: dist/
+    
+    - name: Publish to PyPI
+      env:
+        TWINE_USERNAME: __token__
+        TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+      run: |
+        pip install twine
+        twine check dist/*.whl dist/*.tar.gz
+        twine upload dist/*.whl dist/*.tar.gz
+    
+    - name: Publish to npm (if applicable)
+      if: false  # Enable if you have npm packages
+      env:
+        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      run: |
+        npm publish
+
+  # ===========================================
+  # Update Documentation
+  # ===========================================
+  
+  update-docs:
+    name: Update Documentation
+    runs-on: ubuntu-latest
+    needs: [validate-release, deploy-production]
+    if: ${{ !needs.validate-release.outputs.is-prerelease }}
+    timeout-minutes: 15
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install documentation dependencies
+      run: |
+        pip install mkdocs mkdocs-material mkdocs-mermaid2-plugin
+    
+    - name: Update version in docs
+      run: |
+        VERSION="${{ needs.validate-release.outputs.version }}"
+        sed -i "s/version: .*/version: ${VERSION}/" docs/mkdocs.yml
+        sed -i "s/Current Version: .*/Current Version: ${VERSION}/" docs/index.md
+    
+    - name: Build documentation
+      run: |
+        cd docs
+        mkdocs build
+    
+    - name: Deploy to GitHub Pages
+      run: |
+        cd docs
+        mkdocs gh-deploy --force
+    
+    - name: Update Docker Hub description
+      if: false  # Enable if you use Docker Hub
+      run: |
+        # Update Docker Hub repository description with latest version
+        echo "Updating Docker Hub description..."
+
+  # ===========================================
+  # Notify Release
+  # ===========================================
+  
+  notify-release:
+    name: Notify Release
+    runs-on: ubuntu-latest
+    needs: [validate-release, create-release, deploy-production, publish-packages]
+    if: always() && needs.create-release.result == 'success'
+    timeout-minutes: 5
+    
+    steps:
+    - name: Notify Slack
+      if: ${{ secrets.SLACK_WEBHOOK_URL }}
+      run: |
+        curl -X POST -H 'Content-type: application/json' \
+          --data "{
+            \"text\": \"🚀 AGI Evaluation Sandbox v${{ needs.validate-release.outputs.version }} has been released!\",
+            \"blocks\": [
+              {
+                \"type\": \"section\",
+                \"text\": {
+                  \"type\": \"mrkdwn\",
+                  \"text\": \"*AGI Evaluation Sandbox v${{ needs.validate-release.outputs.version }}* has been released!\"
+                }
+              },
+              {
+                \"type\": \"section\",
+                \"fields\": [
+                  {
+                    \"type\": \"mrkdwn\",
+                    \"text\": \"*Version:* ${{ needs.validate-release.outputs.version }}\"
+                  },
+                  {
+                    \"type\": \"mrkdwn\",
+                    \"text\": \"*Type:* ${{ needs.validate-release.outputs.is-prerelease == 'true' && 'Pre-release' || 'Stable' }}\"
+                  }
+                ]
+              },
+              {
+                \"type\": \"actions\",
+                \"elements\": [
+                  {
+                    \"type\": \"button\",
+                    \"text\": {
+                      \"type\": \"plain_text\",
+                      \"text\": \"View Release\"
+                    },
+                    \"url\": \"https://github.com/${{ github.repository }}/releases/tag/v${{ needs.validate-release.outputs.version }}\"
+                  }
+                ]
+              }
+            ]
+          }" \
+          ${{ secrets.SLACK_WEBHOOK_URL }}
+    
+    - name: Create summary
+      run: |
+        echo "### 🎉 Release Summary" >> $GITHUB_STEP_SUMMARY
+        echo "- **Version**: ${{ needs.validate-release.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Type**: ${{ needs.validate-release.outputs.is-prerelease == 'true' && 'Pre-release' || 'Stable Release' }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Release**: [View on GitHub](https://github.com/${{ github.repository }}/releases/tag/v${{ needs.validate-release.outputs.version }})" >> $GITHUB_STEP_SUMMARY
+        echo "- **Docker**: \`docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.validate-release.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+        
+        if [[ "${{ needs.deploy-production.result }}" == "success" ]]; then
+          echo "- **Production**: ✅ Deployed successfully" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "- **Production**: ❌ Deployment failed or skipped" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        if [[ "${{ needs.publish-packages.result }}" == "success" ]]; then
+          echo "- **Packages**: ✅ Published to registries" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "- **Packages**: ❌ Publishing failed or skipped" >> $GITHUB_STEP_SUMMARY
+        fi

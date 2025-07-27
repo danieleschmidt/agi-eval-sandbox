@@ -1,0 +1,359 @@
+# Prometheus Alert Rules for AGI Evaluation Sandbox
+# ===================================================
+
+groups:
+  # ===========================================
+  # Application Health Alerts
+  # ===========================================
+  
+  - name: application.rules
+    rules:
+    - alert: APIServiceDown
+      expr: up{job="agi-eval-api"} == 0
+      for: 1m
+      labels:
+        severity: critical
+        component: api
+      annotations:
+        summary: "AGI Eval API service is down"
+        description: "The AGI Evaluation Sandbox API has been down for more than 1 minute."
+        runbook_url: "https://docs.your-org.com/runbooks/api-down"
+
+    - alert: HighErrorRate
+      expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.1
+      for: 5m
+      labels:
+        severity: warning
+        component: api
+      annotations:
+        summary: "High error rate detected"
+        description: "Error rate is {{ $value | humanizePercentage }} for {{ $labels.instance }}"
+        runbook_url: "https://docs.your-org.com/runbooks/high-error-rate"
+
+    - alert: HighResponseTime
+      expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 2
+      for: 10m
+      labels:
+        severity: warning
+        component: api
+      annotations:
+        summary: "High API response time"
+        description: "95th percentile response time is {{ $value }}s for {{ $labels.instance }}"
+        runbook_url: "https://docs.your-org.com/runbooks/high-response-time"
+
+    - alert: EvaluationFailureRate
+      expr: rate(evaluation_failures_total[5m]) / rate(evaluation_total[5m]) > 0.2
+      for: 5m
+      labels:
+        severity: warning
+        component: evaluation
+      annotations:
+        summary: "High evaluation failure rate"
+        description: "Evaluation failure rate is {{ $value | humanizePercentage }} for {{ $labels.instance }}"
+        runbook_url: "https://docs.your-org.com/runbooks/evaluation-failures"
+
+  # ===========================================
+  # Infrastructure Alerts
+  # ===========================================
+  
+  - name: infrastructure.rules
+    rules:
+    - alert: HighCPUUsage
+      expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+      for: 10m
+      labels:
+        severity: warning
+        component: infrastructure
+      annotations:
+        summary: "High CPU usage"
+        description: "CPU usage is {{ $value | humanizePercentage }} on {{ $labels.instance }}"
+        runbook_url: "https://docs.your-org.com/runbooks/high-cpu"
+
+    - alert: HighMemoryUsage
+      expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 0.9
+      for: 10m
+      labels:
+        severity: warning
+        component: infrastructure
+      annotations:
+        summary: "High memory usage"
+        description: "Memory usage is {{ $value | humanizePercentage }} on {{ $labels.instance }}"
+        runbook_url: "https://docs.your-org.com/runbooks/high-memory"
+
+    - alert: DiskSpaceLow
+      expr: (1 - node_filesystem_avail_bytes / node_filesystem_size_bytes) > 0.85
+      for: 10m
+      labels:
+        severity: warning
+        component: infrastructure
+      annotations:
+        summary: "Low disk space"
+        description: "Disk usage is {{ $value | humanizePercentage }} on {{ $labels.instance }}"
+        runbook_url: "https://docs.your-org.com/runbooks/low-disk-space"
+
+    - alert: DiskSpaceCritical
+      expr: (1 - node_filesystem_avail_bytes / node_filesystem_size_bytes) > 0.95
+      for: 5m
+      labels:
+        severity: critical
+        component: infrastructure
+      annotations:
+        summary: "Critical disk space"
+        description: "Disk usage is {{ $value | humanizePercentage }} on {{ $labels.instance }}"
+        runbook_url: "https://docs.your-org.com/runbooks/critical-disk-space"
+
+  # ===========================================
+  # Database Alerts
+  # ===========================================
+  
+  - name: database.rules
+    rules:
+    - alert: PostgreSQLDown
+      expr: up{job="postgres"} == 0
+      for: 1m
+      labels:
+        severity: critical
+        component: database
+      annotations:
+        summary: "PostgreSQL is down"
+        description: "PostgreSQL database has been down for more than 1 minute."
+        runbook_url: "https://docs.your-org.com/runbooks/postgres-down"
+
+    - alert: PostgreSQLHighConnections
+      expr: sum(pg_stat_activity_count) by (instance) > 80
+      for: 5m
+      labels:
+        severity: warning
+        component: database
+      annotations:
+        summary: "High PostgreSQL connections"
+        description: "PostgreSQL has {{ $value }} active connections on {{ $labels.instance }}"
+        runbook_url: "https://docs.your-org.com/runbooks/postgres-high-connections"
+
+    - alert: PostgreSQLSlowQueries
+      expr: rate(pg_stat_activity_max_tx_duration[5m]) > 300
+      for: 5m
+      labels:
+        severity: warning
+        component: database
+      annotations:
+        summary: "Slow PostgreSQL queries detected"
+        description: "Slow queries detected on {{ $labels.instance }}"
+        runbook_url: "https://docs.your-org.com/runbooks/postgres-slow-queries"
+
+    - alert: PostgreSQLReplicationLag
+      expr: pg_replication_lag > 60
+      for: 5m
+      labels:
+        severity: warning
+        component: database
+      annotations:
+        summary: "PostgreSQL replication lag"
+        description: "Replication lag is {{ $value }}s on {{ $labels.instance }}"
+        runbook_url: "https://docs.your-org.com/runbooks/postgres-replication-lag"
+
+  # ===========================================
+  # Redis Alerts
+  # ===========================================
+  
+  - name: redis.rules
+    rules:
+    - alert: RedisDown
+      expr: up{job="redis"} == 0
+      for: 1m
+      labels:
+        severity: critical
+        component: cache
+      annotations:
+        summary: "Redis is down"
+        description: "Redis cache has been down for more than 1 minute."
+        runbook_url: "https://docs.your-org.com/runbooks/redis-down"
+
+    - alert: RedisHighMemoryUsage
+      expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+      for: 10m
+      labels:
+        severity: warning
+        component: cache
+      annotations:
+        summary: "High Redis memory usage"
+        description: "Redis memory usage is {{ $value | humanizePercentage }} on {{ $labels.instance }}"
+        runbook_url: "https://docs.your-org.com/runbooks/redis-high-memory"
+
+    - alert: RedisConnectionPoolExhausted
+      expr: redis_connected_clients > 100
+      for: 5m
+      labels:
+        severity: warning
+        component: cache
+      annotations:
+        summary: "Redis connection pool exhausted"
+        description: "Redis has {{ $value }} connected clients on {{ $labels.instance }}"
+        runbook_url: "https://docs.your-org.com/runbooks/redis-connection-pool"
+
+  # ===========================================
+  # Celery Worker Alerts
+  # ===========================================
+  
+  - name: celery.rules
+    rules:
+    - alert: CeleryWorkersDown
+      expr: celery_workers_active == 0
+      for: 2m
+      labels:
+        severity: critical
+        component: workers
+      annotations:
+        summary: "No active Celery workers"
+        description: "No Celery workers are active for task processing."
+        runbook_url: "https://docs.your-org.com/runbooks/celery-workers-down"
+
+    - alert: CeleryQueueBacklog
+      expr: celery_queue_length > 100
+      for: 10m
+      labels:
+        severity: warning
+        component: workers
+      annotations:
+        summary: "High Celery queue backlog"
+        description: "Celery queue has {{ $value }} pending tasks"
+        runbook_url: "https://docs.your-org.com/runbooks/celery-queue-backlog"
+
+    - alert: CeleryTaskFailureRate
+      expr: rate(celery_task_failures_total[5m]) / rate(celery_task_total[5m]) > 0.1
+      for: 5m
+      labels:
+        severity: warning
+        component: workers
+      annotations:
+        summary: "High Celery task failure rate"
+        description: "Task failure rate is {{ $value | humanizePercentage }}"
+        runbook_url: "https://docs.your-org.com/runbooks/celery-task-failures"
+
+    - alert: CeleryTaskExecutionTime
+      expr: histogram_quantile(0.95, rate(celery_task_duration_seconds_bucket[5m])) > 300
+      for: 10m
+      labels:
+        severity: warning
+        component: workers
+      annotations:
+        summary: "Long Celery task execution time"
+        description: "95th percentile task execution time is {{ $value }}s"
+        runbook_url: "https://docs.your-org.com/runbooks/celery-slow-tasks"
+
+  # ===========================================
+  # Security Alerts
+  # ===========================================
+  
+  - name: security.rules
+    rules:
+    - alert: UnauthorizedAccessAttempts
+      expr: rate(http_requests_total{status="401"}[5m]) > 10
+      for: 5m
+      labels:
+        severity: warning
+        component: security
+      annotations:
+        summary: "High number of unauthorized access attempts"
+        description: "{{ $value }} unauthorized access attempts per second on {{ $labels.instance }}"
+        runbook_url: "https://docs.your-org.com/runbooks/unauthorized-access"
+
+    - alert: SuspiciousTrafficPattern
+      expr: rate(http_requests_total[1m]) > 1000
+      for: 2m
+      labels:
+        severity: warning
+        component: security
+      annotations:
+        summary: "Suspicious traffic pattern detected"
+        description: "Unusually high request rate: {{ $value }} requests/second on {{ $labels.instance }}"
+        runbook_url: "https://docs.your-org.com/runbooks/suspicious-traffic"
+
+    - alert: CertificateExpiringSoon
+      expr: probe_ssl_earliest_cert_expiry - time() < 7 * 24 * 3600
+      for: 0m
+      labels:
+        severity: warning
+        component: security
+      annotations:
+        summary: "SSL certificate expiring soon"
+        description: "SSL certificate for {{ $labels.instance }} expires in {{ $value | humanizeDuration }}"
+        runbook_url: "https://docs.your-org.com/runbooks/certificate-expiry"
+
+  # ===========================================
+  # Business Logic Alerts
+  # ===========================================
+  
+  - name: business.rules
+    rules:
+    - alert: EvaluationThroughputLow
+      expr: rate(evaluation_completed_total[1h]) < 10
+      for: 30m
+      labels:
+        severity: warning
+        component: business
+      annotations:
+        summary: "Low evaluation throughput"
+        description: "Evaluation throughput is {{ $value }} per hour, below expected threshold"
+        runbook_url: "https://docs.your-org.com/runbooks/low-throughput"
+
+    - alert: ModelProviderErrors
+      expr: rate(model_provider_errors_total[5m]) > 5
+      for: 5m
+      labels:
+        severity: warning
+        component: external
+      annotations:
+        summary: "High model provider error rate"
+        description: "Model provider {{ $labels.provider }} error rate is {{ $value }} errors/second"
+        runbook_url: "https://docs.your-org.com/runbooks/model-provider-errors"
+
+    - alert: EvaluationStuck
+      expr: time() - evaluation_last_completed_timestamp > 3600
+      for: 0m
+      labels:
+        severity: critical
+        component: business
+      annotations:
+        summary: "Evaluations appear to be stuck"
+        description: "No evaluations completed in the last hour"
+        runbook_url: "https://docs.your-org.com/runbooks/evaluation-stuck"
+
+  # ===========================================
+  # Data Quality Alerts
+  # ===========================================
+  
+  - name: data_quality.rules
+    rules:
+    - alert: DatabaseConnectionPoolExhausted
+      expr: pg_stat_activity_count / pg_settings_max_connections > 0.8
+      for: 5m
+      labels:
+        severity: warning
+        component: database
+      annotations:
+        summary: "Database connection pool nearly exhausted"
+        description: "Database connection usage is {{ $value | humanizePercentage }}"
+        runbook_url: "https://docs.your-org.com/runbooks/db-connection-pool"
+
+    - alert: UnusuallyLargeEvaluationResults
+      expr: evaluation_result_size_bytes > 100 * 1024 * 1024  # 100MB
+      for: 0m
+      labels:
+        severity: warning
+        component: data
+      annotations:
+        summary: "Unusually large evaluation result"
+        description: "Evaluation result size is {{ $value | humanizeBytes }} for evaluation {{ $labels.evaluation_id }}"
+        runbook_url: "https://docs.your-org.com/runbooks/large-results"
+
+    - alert: HighDataCorruption
+      expr: rate(data_validation_failures_total[5m]) > 1
+      for: 5m
+      labels:
+        severity: critical
+        component: data
+      annotations:
+        summary: "High data corruption rate detected"
+        description: "Data validation failures: {{ $value }} per second"
+        runbook_url: "https://docs.your-org.com/runbooks/data-corruption"
