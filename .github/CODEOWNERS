@@ -1,0 +1,89 @@
+# AGI Evaluation Sandbox - Code Owners
+# ====================================
+# This file defines who is responsible for reviewing changes in different parts of the codebase.
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Global owners - these users will be requested for review on every PR
+* @danieleschmidt
+
+# Documentation
+*.md @danieleschmidt
+docs/ @danieleschmidt
+README.md @danieleschmidt
+CONTRIBUTING.md @danieleschmidt
+
+# Configuration files
+*.yml @danieleschmidt
+*.yaml @danieleschmidt
+*.json @danieleschmidt
+*.toml @danieleschmidt
+*.ini @danieleschmidt
+.env.example @danieleschmidt
+
+# Docker and Infrastructure
+Dockerfile* @danieleschmidt
+docker-compose*.yml @danieleschmidt
+.dockerignore @danieleschmidt
+kubernetes/ @danieleschmidt
+terraform/ @danieleschmidt
+
+# CI/CD and GitHub configuration
+.github/ @danieleschmidt
+.pre-commit-config.yaml @danieleschmidt
+
+# Python Backend
+src/ @danieleschmidt
+api/ @danieleschmidt
+*.py @danieleschmidt
+pyproject.toml @danieleschmidt
+requirements*.txt @danieleschmidt
+setup.py @danieleschmidt
+pytest.ini @danieleschmidt
+.flake8 @danieleschmidt
+
+# Frontend/Dashboard
+dashboard/ @danieleschmidt
+*.js @danieleschmidt
+*.ts @danieleschmidt
+*.tsx @danieleschmidt
+*.jsx @danieleschmidt
+package.json @danieleschmidt
+package-lock.json @danieleschmidt
+yarn.lock @danieleschmidt
+
+# Testing
+tests/ @danieleschmidt
+playwright.config.ts @danieleschmidt
+*.test.py @danieleschmidt
+*.spec.ts @danieleschmidt
+
+# Security and Compliance
+SECURITY.md @danieleschmidt
+.secrets.baseline @danieleschmidt
+.bandit @danieleschmidt
+
+# Database and Migrations
+migrations/ @danieleschmidt
+alembic/ @danieleschmidt
+*.sql @danieleschmidt
+
+# Monitoring and Observability
+monitoring/ @danieleschmidt
+grafana/ @danieleschmidt
+prometheus/ @danieleschmidt
+
+# Build and Release
+Makefile @danieleschmidt
+scripts/ @danieleschmidt
+.editorconfig @danieleschmidt
+.gitignore @danieleschmidt
+
+# Architecture and Design
+ARCHITECTURE.md @danieleschmidt
+docs/adr/ @danieleschmidt
+docs/DEVELOPMENT.md @danieleschmidt
+
+# Critical files that require extra review
+LICENSE @danieleschmidt
+CHANGELOG.md @danieleschmidt
+version.py @danieleschmidt
