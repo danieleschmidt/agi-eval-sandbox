@@ -1,0 +1,88 @@
+[flake8]
+max-line-length = 88
+max-complexity = 10
+extend-ignore = 
+    # Black compatibility
+    E203,  # whitespace before ':'
+    E501,  # line too long (handled by black)
+    W503,  # line break before binary operator
+    W504,  # line break after binary operator
+    # Additional ignores
+    B008,  # do not perform function calls in argument defaults
+    B902,  # blind except
+    F401,  # imported but unused (handled by ruff/isort)
+    E731,  # lambda assignments
+
+exclude = 
+    .git,
+    __pycache__,
+    .pytest_cache,
+    .mypy_cache,
+    .venv,
+    venv,
+    env,
+    ENV,
+    build,
+    dist,
+    *.egg-info,
+    migrations,
+    alembic,
+    node_modules,
+    .tox,
+    .coverage,
+    htmlcov
+
+per-file-ignores =
+    # Tests can use fixtures, assertions, and have longer lines
+    tests/*.py:S101,B101,E501,F401,F811
+    # Configuration files
+    conftest.py:F401,F811
+    # Init files can have unused imports
+    __init__.py:F401
+    # Migrations can be longer and have specific patterns
+    */migrations/*.py:E501,F401
+    */alembic/versions/*.py:E501,F401
+
+# Flake8 plugins configuration
+select = E,W,F,C,B,N
+application-import-names = agi_eval_sandbox
+import-order-style = google
+
+# flake8-quotes
+inline-quotes = double
+multiline-quotes = double
+docstring-quotes = double
+avoid-escape = True
+
+# flake8-docstrings
+docstring-convention = google
+ignore-decorators = property
+
+# flake8-bugbear
+extend-immutable-calls = 
+    fastapi.Depends,
+    fastapi.Query,
+    fastapi.Path,
+    fastapi.Body,
+    fastapi.Header,
+    fastapi.Cookie,
+    fastapi.Form,
+    fastapi.File,
+    typer.Option,
+    typer.Argument
+
+# flake8-pytest-style
+pytest-fixture-no-parentheses = true
+pytest-parametrize-names-type = list
+pytest-parametrize-values-type = list
+pytest-parametrize-values-row-type = list
+
+# flake8-bandit
+bandit-skip-lines = 
+    # Skip bandit checks on test files
+    */tests/*,
+    # Skip specific security checks
+    B101,  # assert_used
+    B601,  # paramiko_calls
+    B602,  # subprocess_popen_with_shell_equals_true
+    B603,  # subprocess_without_shell_equals_true
