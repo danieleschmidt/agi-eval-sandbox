@@ -1,0 +1,337 @@
+# Dependabot configuration for AGI Evaluation Sandbox
+# Automated dependency updates with security focus
+# See: https://docs.github.com/en/code-security/dependabot
+
+version: 2
+updates:
+  # ==================================================
+  # Python Dependencies
+  # ==================================================
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 10
+    
+    # Security updates are prioritized
+    target-branch: "develop"
+    
+    # Grouping strategy to reduce PR noise
+    groups:
+      # Group security updates together
+      security-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "security"
+        
+      # Group major version updates
+      major-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "version-update:semver-major"
+        
+      # Group minor and patch updates for core dependencies
+      core-dependencies:
+        patterns:
+          - "fastapi"
+          - "uvicorn"
+          - "pydantic"
+          - "sqlalchemy"
+          - "alembic"
+          - "celery"
+          - "redis"
+          - "pytest"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
+        
+      # Group AI/ML dependencies
+      ai-ml-dependencies:
+        patterns:
+          - "openai"
+          - "anthropic"
+          - "transformers"
+          - "torch"
+          - "numpy"
+          - "pandas"
+          - "scikit-learn"
+          - "matplotlib"
+          - "seaborn"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
+        
+      # Group development dependencies
+      dev-dependencies:
+        patterns:
+          - "black"
+          - "isort"
+          - "flake8"
+          - "mypy"
+          - "pre-commit"
+          - "bandit"
+          - "safety"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
+    
+    # Custom commit messages
+    commit-message:
+      prefix: "deps(python)"
+      prefix-development: "deps(dev)"
+      include: "scope"
+    
+    # Ignore specific dependencies if needed
+    ignore:
+      - dependency-name: "urllib3"
+        # Ignore patch updates for urllib3 due to compatibility
+        update-types: ["version-update:semver-patch"]
+    
+    # Reviewers and assignees
+    reviewers:
+      - "danieleschmidt"
+    assignees:
+      - "danieleschmidt"
+    
+    # Labels for better PR categorization
+    labels:
+      - "dependencies"
+      - "python"
+      - "automerge-candidate"
+    
+    # Allow automatic rebasing
+    rebase-strategy: "auto"
+    
+    # Vulnerability alerts override schedule
+    allow:
+      - dependency-type: "direct"
+      - dependency-type: "indirect"
+    
+  # ==================================================
+  # Node.js Dependencies (Frontend)
+  # ==================================================
+  - package-ecosystem: "npm"
+    directory: "/dashboard"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "04:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 10
+    
+    target-branch: "develop"
+    
+    groups:
+      # Security updates
+      security-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "security"
+        
+      # React ecosystem
+      react-ecosystem:
+        patterns:
+          - "react*"
+          - "@types/react*"
+          - "@testing-library/*"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
+        
+      # Build tools
+      build-tools:
+        patterns:
+          - "vite*"
+          - "@vitejs/*"
+          - "typescript"
+          - "@types/*"
+          - "eslint*"
+          - "prettier"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
+        
+      # UI libraries
+      ui-libraries:
+        patterns:
+          - "@mui/*"
+          - "@emotion/*"
+          - "tailwindcss"
+          - "@headlessui/*"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
+    
+    commit-message:
+      prefix: "deps(frontend)"
+      include: "scope"
+    
+    reviewers:
+      - "danieleschmidt"
+    assignees:
+      - "danieleschmidt"
+    
+    labels:
+      - "dependencies"
+      - "frontend"
+      - "automerge-candidate"
+    
+    rebase-strategy: "auto"
+    
+  # ==================================================
+  # Root package.json (workspace dependencies)
+  # ==================================================
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "05:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 5
+    
+    target-branch: "develop"
+    
+    groups:
+      # Development tools
+      dev-tools:
+        patterns:
+          - "@playwright/test"
+          - "concurrently"
+          - "husky"
+          - "lint-staged"
+          - "semantic-release"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
+    
+    commit-message:
+      prefix: "deps(workspace)"
+      include: "scope"
+    
+    reviewers:
+      - "danieleschmidt"
+    assignees:
+      - "danieleschmidt"
+    
+    labels:
+      - "dependencies"
+      - "workspace"
+      - "automerge-candidate"
+    
+  # ==================================================
+  # Docker Dependencies
+  # ==================================================
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "04:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 5
+    
+    target-branch: "develop"
+    
+    commit-message:
+      prefix: "deps(docker)"
+      include: "scope"
+    
+    reviewers:
+      - "danieleschmidt"
+    assignees:
+      - "danieleschmidt"
+    
+    labels:
+      - "dependencies"
+      - "docker"
+      - "infrastructure"
+    
+  # ==================================================
+  # GitHub Actions Dependencies
+  # ==================================================
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "thursday"
+      time: "04:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 5
+    
+    target-branch: "develop"
+    
+    groups:
+      # Standard actions
+      standard-actions:
+        patterns:
+          - "actions/checkout"
+          - "actions/setup-python"
+          - "actions/setup-node"
+          - "actions/cache"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
+      
+      # Security-focused actions
+      security-actions:
+        patterns:
+          - "github/codeql-action"
+          - "ossf/scorecard-action"
+          - "securecodewarrior/github-action-add-sarif"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
+    
+    commit-message:
+      prefix: "deps(actions)"
+      include: "scope"
+    
+    reviewers:
+      - "danieleschmidt"
+    assignees:
+      - "danieleschmidt"
+    
+    labels:
+      - "dependencies"
+      - "github-actions"
+      - "ci"
+    
+  # ==================================================
+  # Terraform Dependencies (if used)
+  # ==================================================
+  - package-ecosystem: "terraform"
+    directory: "/infrastructure"
+    schedule:
+      interval: "weekly"
+      day: "friday"
+      time: "04:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 3
+    
+    target-branch: "develop"
+    
+    commit-message:
+      prefix: "deps(terraform)"
+      include: "scope"
+    
+    reviewers:
+      - "danieleschmidt"
+    assignees:
+      - "danieleschmidt"
+    
+    labels:
+      - "dependencies"
+      - "terraform"
+      - "infrastructure"
+
+# Additional configuration for security alerts
+# These will be handled with higher priority regardless of schedule

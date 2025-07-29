@@ -1,0 +1,573 @@
+# Jaeger Distributed Tracing Configuration for AGI Evaluation Sandbox
+# End-to-end request tracing and performance analysis
+# See: https://www.jaegertracing.io/docs/
+
+# ==================================================
+# Jaeger All-in-One Configuration
+# ==================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jaeger-config
+  namespace: monitoring
+data:
+  jaeger.yml: |
+    # ==================================================
+    # Query Service Configuration
+    # ==================================================
+    query:
+      # HTTP server settings
+      http-server:
+        host-port: 0.0.0.0:16686
+        
+      # gRPC server settings
+      grpc-server:
+        host-port: 0.0.0.0:16685
+        
+      # Additional query options
+      additional-headers:
+        - "Access-Control-Allow-Origin: *"
+        - "Access-Control-Allow-Methods: GET, POST, OPTIONS"
+        - "Access-Control-Allow-Headers: Content-Type, Authorization"
+        
+      # Query timeout
+      query-timeout: 30s
+      
+      # Max clock skew adjustment
+      max-clock-skew-adjustment: 0s
+      
+      # UI configuration
+      ui-config: |
+        {
+          "monitor": {
+            "menuEnabled": true
+          },
+          "dependencies": {
+            "menuEnabled": true
+          },
+          "archiveEnabled": true,
+          "tracking": {
+            "gaID": "UA-000000-2"
+          },
+          "menu": [
+            {
+              "label": "AGI Eval Dashboard",
+              "url": "http://localhost:8080",
+              "anchorTarget": "_blank"
+            },
+            {
+              "label": "Grafana",
+              "url": "http://localhost:3000",
+              "anchorTarget": "_blank"
+            },
+            {
+              "label": "Prometheus",
+              "url": "http://localhost:9090",
+              "anchorTarget": "_blank"
+            }
+          ]
+        }
+    
+    # ==================================================
+    # Collector Configuration
+    # ==================================================
+    collector:
+      # HTTP server for receiving spans
+      http-server:
+        host-port: 0.0.0.0:14268
+        
+      # gRPC server for receiving spans
+      grpc-server:
+        host-port: 0.0.0.0:14250
+        
+      # Zipkin HTTP endpoint
+      zipkin:
+        http-server:
+          host-port: 0.0.0.0:9411
+          
+      # Health check endpoint
+      health-check-http-port: 14269
+      
+      # Batch processing
+      queue-size: 2000
+      batch-size: 100
+      workers: 50
+      
+      # Sampling strategies
+      sampling:
+        strategies-file: /etc/jaeger/sampling_strategies.json
+        
+      # Rate limiting (spans per second)
+      max-message-size: 4194304  # 4MB
+      
+    # ==================================================
+    # Agent Configuration (if using Jaeger Agent)
+    # ==================================================
+    agent:
+      # Jaeger thrift compact protocol
+      jaeger:
+        thrift-compact:
+          server-host-port: 0.0.0.0:6831
+        thrift-binary:
+          server-host-port: 0.0.0.0:6832
+          
+      # Zipkin thrift compact protocol
+      zipkin:
+        thrift-compact:
+          server-host-port: 0.0.0.0:5775
+          
+      # HTTP server for configs
+      http-server:
+        host-port: 0.0.0.0:5778
+        
+      # Processor configuration
+      processor:
+        jaeger-compact:
+          server-queue-size: 1000
+          server-max-packet-size: 65000
+          server-socket-buffer-size: 0
+          workers: 10
+          
+        jaeger-binary:
+          server-queue-size: 1000
+          server-max-packet-size: 65000
+          server-socket-buffer-size: 0
+          workers: 10
+          
+      # Reporter configuration
+      reporter:
+        grpc:
+          host-port: jaeger-collector:14250
+          retry:
+            max-retries: 3
+          
+        http:
+          endpoint: http://jaeger-collector:14268/api/traces
+          timeout: 5s
+          
+    # ==================================================
+    # Storage Configuration
+    # ==================================================
+    storage:
+      # Storage type (memory, badger, elasticsearch, cassandra)
+      type: elasticsearch
+      
+      # Elasticsearch configuration
+      elasticsearch:
+        server-urls: http://elasticsearch:9200
+        username: ${ELASTICSEARCH_USERNAME}
+        password: ${ELASTICSEARCH_PASSWORD}
+        index-prefix: jaeger
+        max-span-age: 168h  # 7 days
+        num-shards: 5
+        num-replicas: 1
+        timeout: 30s
+        bulk:
+          size: 5000000  # 5MB
+          workers: 1
+          actions: 1000
+          flush-interval: 200ms
+        create-index-templates: true
+        version: 7
+        
+      # Alternative: Memory storage (for development)
+      # memory:
+      #   max-traces: 50000
+        
+      # Alternative: Badger storage (local file-based)
+      # badger:
+      #   ephemeral: false
+      #   directory-key: /badger/key
+      #   directory-value: /badger/data
+      #   span-store-ttl: 168h  # 7 days
+      #   maintenance-interval: 5m
+        
+      # Alternative: Cassandra storage
+      # cassandra:
+      #   servers: cassandra:9042
+      #   keyspace: jaeger_v1_dc1
+      #   local-dc: dc1
+      #   consistency: LOCAL_QUORUM
+      #   proto-version: 4
+      #   timeout: 30s
+      #   max-retry-attempts: 3
+      #   retry-interval: 1s
+        
+    # ==================================================
+    # Sampling Strategies
+    # ==================================================
+    sampling-strategies: |
+      {
+        "service_strategies": [
+          {
+            "service": "agi-eval-api",
+            "type": "probabilistic",
+            "param": 0.1,
+            "max_traces_per_second": 100,
+            "operation_strategies": [
+              {
+                "operation": "POST /api/v1/evaluations",
+                "type": "probabilistic",
+                "param": 1.0
+              },
+              {
+                "operation": "GET /api/v1/evaluations/*",
+                "type": "probabilistic",
+                "param": 0.5
+              },
+              {
+                "operation": "GET /health",
+                "type": "probabilistic",
+                "param": 0.01
+              }
+            ]
+          },
+          {
+            "service": "agi-eval-worker",
+            "type": "probabilistic",
+            "param": 1.0,
+            "max_traces_per_second": 50
+          },
+          {
+            "service": "agi-eval-dashboard",
+            "type": "probabilistic",
+            "param": 0.05,
+            "max_traces_per_second": 20
+          }
+        ],
+        "default_strategy": {
+          "type": "probabilistic",
+          "param": 0.1,
+          "max_traces_per_second": 100
+        },
+        "per_operation_strategies": [
+          {
+            "service": ".*",
+            "operation": ".*health.*",
+            "type": "probabilistic",
+            "param": 0.01
+          },
+          {
+            "service": ".*",
+            "operation": ".*metrics.*",
+            "type": "probabilistic",
+            "param": 0.01
+          }
+        ]
+      }
+      
+  # ==================================================
+  # Sampling Strategies File
+  # ==================================================
+  sampling_strategies.json: |
+    {
+      "service_strategies": [
+        {
+          "service": "agi-eval-api",
+          "type": "adaptive",
+          "max_traces_per_second": 100,
+          "operation_strategies": [
+            {
+              "operation": "POST /api/v1/evaluations",
+              "type": "probabilistic",
+              "param": 1.0
+            },
+            {
+              "operation": "GET /api/v1/evaluations/*",
+              "type": "probabilistic",
+              "param": 0.5
+            },
+            {
+              "operation": "GET /health",
+              "type": "probabilistic",
+              "param": 0.001
+            },
+            {
+              "operation": "GET /metrics",
+              "type": "probabilistic",
+              "param": 0.001
+            }
+          ]
+        },
+        {
+          "service": "agi-eval-worker",
+          "type": "probabilistic",
+          "param": 1.0,
+          "max_traces_per_second": 50,
+          "operation_strategies": [
+            {
+              "operation": "evaluate_model",
+              "type": "probabilistic",
+              "param": 1.0
+            },
+            {
+              "operation": "process_benchmark",
+              "type": "probabilistic",
+              "param": 1.0
+            }
+          ]
+        },
+        {
+          "service": "agi-eval-dashboard",
+          "type": "probabilistic",
+          "param": 0.1,
+          "max_traces_per_second": 20
+        },
+        {
+          "service": "redis",
+          "type": "probabilistic",
+          "param": 0.01,
+          "max_traces_per_second": 10
+        },
+        {
+          "service": "postgresql",
+          "type": "probabilistic",
+          "param": 0.1,
+          "max_traces_per_second": 30
+        }
+      ],
+      "default_strategy": {
+        "type": "probabilistic",
+        "param": 0.1,
+        "max_traces_per_second": 100
+      },
+      "per_operation_strategies": [
+        {
+          "service": ".*",
+          "operation": ".*health.*",
+          "type": "probabilistic",
+          "param": 0.001
+        },
+        {
+          "service": ".*",
+          "operation": ".*metrics.*",
+          "type": "probabilistic",
+          "param": 0.001
+        },
+        {
+          "service": ".*",
+          "operation": ".*login.*",
+          "type": "probabilistic",
+          "param": 0.5
+        },
+        {
+          "service": ".*",
+          "operation": ".*error.*",
+          "type": "probabilistic",
+          "param": 1.0
+        }
+      ]
+    }
+
+---
+# ==================================================
+# Jaeger All-in-One Deployment
+# ==================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaeger-all-in-one
+  namespace: monitoring
+  labels:
+    app: jaeger
+    component: all-in-one
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jaeger
+      component: all-in-one
+  template:
+    metadata:
+      labels:
+        app: jaeger
+        component: all-in-one
+    spec:
+      containers:
+      - name: jaeger
+        image: jaegertracing/all-in-one:1.50
+        ports:
+        - containerPort: 16686  # Jaeger UI
+          name: ui
+        - containerPort: 16685  # Jaeger gRPC query
+          name: grpc-query
+        - containerPort: 14268  # Jaeger HTTP collector
+          name: http-collector
+        - containerPort: 14250  # Jaeger gRPC collector
+          name: grpc-collector
+        - containerPort: 9411   # Zipkin HTTP
+          name: zipkin
+        - containerPort: 6831   # Jaeger thrift compact (UDP)
+          name: thrift-compact
+          protocol: UDP
+        - containerPort: 6832   # Jaeger thrift binary (UDP)
+          name: thrift-binary
+          protocol: UDP
+        - containerPort: 5775   # Zipkin thrift compact (UDP)
+          name: zipkin-compact
+          protocol: UDP
+        - containerPort: 5778   # Jaeger HTTP configs
+          name: http-configs
+        env:
+        # Storage configuration
+        - name: SPAN_STORAGE_TYPE
+          value: "elasticsearch"
+        - name: ES_SERVER_URLS
+          value: "http://elasticsearch:9200"
+        - name: ES_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: elasticsearch-credentials
+              key: username
+        - name: ES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: elasticsearch-credentials
+              key: password
+        - name: ES_INDEX_PREFIX
+          value: "jaeger"
+        - name: ES_MAX_SPAN_AGE
+          value: "168h"  # 7 days
+        
+        # Query configuration
+        - name: QUERY_BASE_PATH
+          value: "/jaeger"
+        - name: QUERY_UI_CONFIG
+          value: "/etc/jaeger/ui-config.json"
+        
+        # Collector configuration
+        - name: COLLECTOR_QUEUE_SIZE
+          value: "2000"
+        - name: COLLECTOR_NUM_WORKERS
+          value: "50"
+        
+        # Sampling configuration
+        - name: SAMPLING_STRATEGIES_FILE
+          value: "/etc/jaeger/sampling_strategies.json"
+        
+        # Logging
+        - name: LOG_LEVEL
+          value: "info"
+        
+        # Health check
+        - name: ADMIN_HTTP_HOST_PORT
+          value: ":14269"
+        
+        # Memory limits
+        - name: MEMORY_MAX_TRACES
+          value: "50000"
+        
+        volumeMounts:
+        - name: jaeger-config
+          mountPath: /etc/jaeger
+          readOnly: true
+        
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 14269
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 14269
+          initialDelaySeconds: 30
+          periodSeconds: 30
+      
+      volumes:
+      - name: jaeger-config
+        configMap:
+          name: jaeger-config
+          items:
+          - key: sampling_strategies.json
+            path: sampling_strategies.json
+          - key: jaeger.yml
+            path: ui-config.json
+
+---
+# ==================================================
+# Jaeger Service
+# ==================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-service
+  namespace: monitoring
+  labels:
+    app: jaeger
+spec:
+  selector:
+    app: jaeger
+    component: all-in-one
+  ports:
+  - name: ui
+    port: 16686
+    targetPort: 16686
+  - name: grpc-query
+    port: 16685
+    targetPort: 16685
+  - name: http-collector
+    port: 14268
+    targetPort: 14268
+  - name: grpc-collector
+    port: 14250
+    targetPort: 14250
+  - name: zipkin
+    port: 9411
+    targetPort: 9411
+  - name: thrift-compact
+    port: 6831
+    targetPort: 6831
+    protocol: UDP
+  - name: thrift-binary
+    port: 6832
+    targetPort: 6832
+    protocol: UDP
+  - name: zipkin-compact
+    port: 5775
+    targetPort: 5775
+    protocol: UDP
+  - name: http-configs
+    port: 5778
+    targetPort: 5778
+  type: ClusterIP
+
+---
+# ==================================================
+# Jaeger Ingress (Optional)
+# ==================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: jaeger-ingress
+  namespace: monitoring
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  tls:
+  - hosts:
+    - jaeger.your-domain.com
+    secretName: jaeger-tls
+  rules:
+  - host: jaeger.your-domain.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: jaeger-service
+            port:
+              number: 16686

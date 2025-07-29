@@ -1,0 +1,554 @@
+# OpenTelemetry Collector Configuration for AGI Evaluation Sandbox
+# Comprehensive observability data collection and processing
+# See: https://opentelemetry.io/docs/collector/
+
+# ==================================================
+# Receivers Configuration
+# ==================================================
+receivers:
+  # OTLP receiver for OpenTelemetry data
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+        cors:
+          allowed_origins:
+            - "http://localhost:3000"
+            - "http://localhost:8080"
+            - "https://*.terragon.ai"
+  
+  # Prometheus metrics receiver
+  prometheus:
+    config:
+      scrape_configs:
+        # FastAPI application metrics
+        - job_name: 'agi-eval-api'
+          scrape_interval: 15s
+          static_configs:
+            - targets: ['localhost:8000']
+          metrics_path: '/metrics'
+          
+        # Dashboard metrics (if available)
+        - job_name: 'agi-eval-dashboard'
+          scrape_interval: 30s
+          static_configs:
+            - targets: ['localhost:8080']
+          metrics_path: '/metrics'
+          
+        # Worker metrics
+        - job_name: 'agi-eval-workers'
+          scrape_interval: 15s
+          static_configs:
+            - targets: ['localhost:9091']
+          
+        # Redis metrics
+        - job_name: 'redis'
+          scrape_interval: 15s
+          static_configs:
+            - targets: ['localhost:9121']
+          
+        # PostgreSQL metrics
+        - job_name: 'postgres'
+          scrape_interval: 30s
+          static_configs:
+            - targets: ['localhost:9187']
+          
+        # Node exporter for system metrics
+        - job_name: 'node'
+          scrape_interval: 15s
+          static_configs:
+            - targets: ['localhost:9100']
+  
+  # JMX receiver for Java applications (if any)
+  jmx:
+    endpoint: localhost:11099
+    target_system: kafka  # or other systems
+    collection_interval: 10s
+  
+  # Host metrics receiver
+  hostmetrics:
+    collection_interval: 30s
+    scrapers:
+      cpu:
+        metrics:
+          system.cpu.utilization:
+            enabled: true
+      disk:
+      filesystem:
+        exclude_mount_points:
+          mount_points: ["/dev/*", "/proc/*", "/sys/*", "/var/lib/docker/*"]
+          match_type: regexp
+      load:
+      memory:
+      network:
+      paging:
+      processes:
+      process:
+        mute_process_name_error: true
+        mute_process_exe_error: true
+        mute_process_io_error: true
+  
+  # Docker stats receiver
+  docker_stats:
+    endpoint: unix:///var/run/docker.sock
+    collection_interval: 10s
+    timeout: 20s
+    api_version: 1.40
+    
+  # Kubernetes receiver (if running in K8s)
+  k8s_cluster:
+    auth_type: serviceAccount
+    collection_interval: 10s
+    
+  # Zipkin receiver for distributed tracing
+  zipkin:
+    endpoint: 0.0.0.0:9411
+    
+  # Jaeger receiver
+  jaeger:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:14250
+      thrift_http:
+        endpoint: 0.0.0.0:14268
+      thrift_compact:
+        endpoint: 0.0.0.0:6831
+        
+  # Log receivers
+  filelog:
+    include:
+      - /var/log/agi-eval/*.log
+      - /app/logs/*.log
+    exclude:
+      - /var/log/agi-eval/*.gz
+    start_at: end
+    include_file_path: true
+    include_file_name: false
+    operators:
+      - type: json_parser
+      - type: time_parser
+        parse_from: attributes.timestamp
+        layout: '%Y-%m-%d %H:%M:%S'
+      - type: severity_parser
+        parse_from: attributes.level
+        
+  # Syslog receiver
+  syslog:
+    tcp:
+      listen_address: "0.0.0.0:54526"
+    udp:
+      listen_address: "0.0.0.0:54527"
+    protocol: rfc3164
+    location: UTC
+
+# ==================================================
+# Processors Configuration
+# ==================================================
+processors:
+  # Batch processor for efficiency
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+    send_batch_max_size: 2048
+    
+  # Memory limiter to prevent OOM
+  memory_limiter:
+    limit_mib: 512
+    spike_limit_mib: 128
+    check_interval: 5s
+    
+  # Resource processor to add metadata
+  resource:
+    attributes:
+      - key: service.name
+        value: agi-eval-sandbox
+        action: insert
+      - key: service.version
+        value: "0.1.0"
+        action: insert
+      - key: deployment.environment
+        from_attribute: env
+        action: insert
+      - key: host.name
+        from_attribute: host.hostname
+        action: upsert
+        
+  # Attributes processor for data enrichment
+  attributes:
+    actions:
+      - key: environment
+        value: ${ENV:ENVIRONMENT:development}
+        action: insert
+      - key: cluster
+        value: ${ENV:CLUSTER_NAME:local}
+        action: insert
+      - key: region
+        value: ${ENV:AWS_REGION:us-east-1}
+        action: insert
+        
+  # Probabilistic sampling for traces
+  probabilistic_sampler:
+    sampling_percentage: 10  # Sample 10% of traces
+    hash_seed: 22
+    
+  # Tail sampling for more sophisticated sampling
+  tail_sampling:
+    decision_wait: 10s
+    num_traces: 50000
+    expected_new_traces_per_sec: 10
+    policies:
+      # Always sample errors
+      - name: error-policy
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      # Always sample slow requests
+      - name: latency-policy
+        type: latency
+        latency:
+          threshold_ms: 1000
+      # Sample 1% of normal requests
+      - name: probabilistic-policy
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 1
+          
+  # Span processor for trace modifications
+  span:
+    name:
+      from_attributes: ["http.method", "http.route"]
+      separator: " "
+      
+  # Metrics transform processor
+  transform:
+    metric_statements:
+      - context: metric
+        statements:
+          - set(description, "Custom metric description") where name == "custom_metric"
+          - set(unit, "ms") where name == "http_request_duration"
+          
+  # Resource detection processor
+  resourcedetection:
+    detectors: [env, system, docker]
+    timeout: 5s
+    override: false
+    
+  # K8s attributes processor (if in Kubernetes)
+  k8sattributes:
+    auth_type: "serviceAccount"
+    passthrough: false
+    filter:
+      node_from_env_var: KUBE_NODE_NAME
+    extract:
+      metadata:
+        - k8s.pod.name
+        - k8s.pod.uid
+        - k8s.deployment.name
+        - k8s.node.name
+        - k8s.namespace.name
+        - k8s.pod.start_time
+        - k8s.replicaset.name
+        - k8s.replicaset.uid
+        - k8s.daemonset.name
+        - k8s.daemonset.uid
+        - k8s.job.name
+        - k8s.job.uid
+        - k8s.cronjob.name
+        - k8s.statefulset.name
+        - k8s.statefulset.uid
+      labels:
+        - tag_name: app.label.component
+          key: app.kubernetes.io/component
+          from: pod
+    pod_association:
+      - sources:
+          - from: resource_attribute
+            name: k8s.pod.ip
+      - sources:
+          - from: resource_attribute
+            name: k8s.pod.uid
+      - sources:
+          - from: connection
+
+# ==================================================
+# Exporters Configuration
+# ==================================================
+exporters:
+  # Prometheus exporter
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    const_labels:
+      environment: ${ENV:ENVIRONMENT:development}
+      service: agi-eval-sandbox
+    send_timestamps: true
+    metric_expiration: 180m
+    enable_open_metrics: true
+    
+  # Jaeger exporter
+  jaeger:
+    endpoint: jaeger-collector:14250
+    tls:
+      insecure: true
+      
+  # OTLP HTTP exporter (for cloud providers)
+  otlphttp:
+    endpoint: ${ENV:OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}
+    headers:
+      api-key: ${ENV:OTEL_API_KEY}
+    compression: gzip
+    timeout: 30s
+    
+  # OTLP gRPC exporter
+  otlp:
+    endpoint: ${ENV:OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4317}
+    headers:
+      api-key: ${ENV:OTEL_API_KEY}
+    compression: gzip
+    
+  # Logging exporter for debugging
+  logging:
+    loglevel: info
+    sampling_initial: 2
+    sampling_thereafter: 500
+    
+  # File exporter for local development
+  file:
+    path: ./otel-data.json
+    rotation:
+      max_megabytes: 100
+      max_days: 3
+      max_backups: 3
+      
+  # Elasticsearch exporter for logs
+  elasticsearch:
+    endpoints:
+      - ${ENV:ELASTICSEARCH_ENDPOINT:http://localhost:9200}
+    index: otel-logs-
+    pipeline: otel-logs-pipeline
+    http:
+      timeout: 30s
+      headers:
+        Authorization: ${ENV:ELASTICSEARCH_AUTH}
+        
+  # AWS CloudWatch exporter
+  awscloudwatchmetrics:
+    region: ${ENV:AWS_REGION:us-east-1}
+    namespace: AGI-Eval/Metrics
+    dimension_rollup_option: NoDimensionRollup
+    metric_declarations:
+      - dimensions: [["service.name"], ["service.name", "operation"]]
+        metric_name_selectors:
+          - ".*_duration"
+          - ".*_count"
+          - ".*_errors"
+          
+  # AWS X-Ray exporter
+  awsxray:
+    region: ${ENV:AWS_REGION:us-east-1}
+    no_verify_ssl: false
+    
+  # DataDog exporter
+  datadog:
+    api:
+      key: ${ENV:DATADOG_API_KEY}
+      site: ${ENV:DATADOG_SITE:datadoghq.com}
+    hostname: ${ENV:DD_HOSTNAME}
+    tags:
+      - env:${ENV:ENVIRONMENT:development}
+      - service:agi-eval-sandbox
+      
+  # New Relic exporter
+  newrelic:
+    apikey: ${ENV:NEW_RELIC_API_KEY}
+    common_attributes:
+      service.name: agi-eval-sandbox
+      environment: ${ENV:ENVIRONMENT:development}
+      
+  # Honeycomb exporter
+  honeycomb:
+    api_key: ${ENV:HONEYCOMB_API_KEY}
+    dataset: agi-eval-traces
+    
+  # Kafka exporter for streaming
+  kafka:
+    brokers:
+      - localhost:9092
+    topic: otel-data
+    compression: gzip
+    
+  # ClickHouse exporter for analytics
+  clickhouse:
+    endpoint: tcp://localhost:9000
+    database: otel
+    username: ${ENV:CLICKHOUSE_USER:default}
+    password: ${ENV:CLICKHOUSE_PASSWORD}
+    ttl: 72h
+
+# ==================================================
+# Extensions Configuration
+# ==================================================
+extensions:
+  # Health check extension
+  health_check:
+    endpoint: 0.0.0.0:13133
+    
+  # pprof extension for performance profiling
+  pprof:
+    endpoint: 0.0.0.0:1777
+    
+  # zpages extension for debugging
+  zpages:
+    endpoint: 0.0.0.0:55679
+    
+  # File storage extension
+  file_storage:
+    directory: ./otel-storage
+    timeout: 1s
+    
+  # Memory ballast extension
+  memory_ballast:
+    size_mib: 64
+    
+  # Basic authenticator
+  basicauth/server:
+    htpasswd:
+      inline: |
+        ${ENV:OTEL_USERNAME}:${ENV:OTEL_PASSWORD_HASH}
+        
+  # Bearer token authenticator
+  bearertokenauth/server:
+    token: ${ENV:OTEL_BEARER_TOKEN}
+    
+  # OAuth2 client credentials authenticator
+  oauth2client:
+    client_id: ${ENV:OAUTH2_CLIENT_ID}
+    client_secret: ${ENV:OAUTH2_CLIENT_SECRET}
+    token_url: ${ENV:OAUTH2_TOKEN_URL}
+    scopes: ["metrics.write", "logs.write", "traces.write"]
+
+# ==================================================
+# Service Configuration
+# ==================================================
+service:
+  # Extensions to enable
+  extensions:
+    - health_check
+    - pprof
+    - zpages
+    - file_storage
+    - memory_ballast
+    
+  # Pipelines configuration
+  pipelines:
+    # Traces pipeline
+    traces:
+      receivers:
+        - otlp
+        - jaeger
+        - zipkin
+      processors:
+        - memory_limiter
+        - resource
+        - attributes
+        - probabilistic_sampler
+        - batch
+      exporters:
+        - jaeger
+        - otlp
+        - logging
+        
+    # Metrics pipeline
+    metrics:
+      receivers:
+        - otlp
+        - prometheus
+        - hostmetrics
+        - docker_stats
+      processors:
+        - memory_limiter
+        - resource
+        - attributes
+        - transform
+        - batch
+      exporters:
+        - prometheus
+        - otlphttp
+        - logging
+        
+    # Logs pipeline
+    logs:
+      receivers:
+        - otlp
+        - filelog
+        - syslog
+      processors:
+        - memory_limiter
+        - resource
+        - attributes
+        - batch
+      exporters:
+        - elasticsearch
+        - otlphttp
+        - logging
+        
+    # Metrics pipeline for cloud providers
+    metrics/cloud:
+      receivers:
+        - otlp
+        - prometheus
+      processors:
+        - memory_limiter
+        - resource
+        - batch
+      exporters:
+        - awscloudwatchmetrics
+        - datadog
+        - newrelic
+        
+    # Traces pipeline for cloud providers
+    traces/cloud:
+      receivers:
+        - otlp
+        - jaeger
+      processors:
+        - memory_limiter
+        - resource
+        - tail_sampling
+        - batch
+      exporters:
+        - awsxray
+        - datadog
+        - honeycomb
+        
+  # Telemetry configuration
+  telemetry:
+    logs:
+      level: info
+      development: false
+      sampling:
+        enabled: true
+        tick: 10s
+        initial: 5
+        thereafter: 200
+      encoding: json
+      disable_caller: false
+      disable_stacktrace: false
+      output_paths:
+        - stderr
+        - /var/log/otel-collector.log
+      error_output_paths:
+        - stderr
+    metrics:
+      level: detailed
+      address: 0.0.0.0:8888
+    traces:
+      processors:
+        - batch
+        
+  # Performance tuning
+  extensions:
+    - health_check
+    - memory_ballast
+    - zpages

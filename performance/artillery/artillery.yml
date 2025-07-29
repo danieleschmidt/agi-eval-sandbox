@@ -1,0 +1,437 @@
+# Artillery.io Load Testing Configuration for AGI Evaluation Sandbox
+# Advanced HTTP load testing and performance benchmarking
+# See: https://artillery.io/docs/
+
+config:
+  # ==================================================
+  # Target Configuration
+  # ==================================================
+  target: "{{ $processEnvironment.API_URL || 'http://localhost:8000' }}"
+  
+  # ==================================================
+  # Test Phases
+  # ==================================================
+  phases:
+    # Warm-up phase
+    - duration: 60
+      arrivalRate: 1
+      name: "Warm-up"
+      
+    # Ramp-up phase
+    - duration: 120
+      arrivalRate: 1
+      rampTo: 10
+      name: "Ramp-up"
+      
+    # Sustained load phase
+    - duration: 300
+      arrivalRate: 10
+      name: "Sustained Load"
+      
+    # Peak load phase
+    - duration: 180
+      arrivalRate: 10
+      rampTo: 25
+      name: "Peak Load"
+      
+    # Cool-down phase
+    - duration: 60
+      arrivalRate: 25
+      rampTo: 1
+      name: "Cool-down"
+  
+  # ==================================================
+  # Global Configuration
+  # ==================================================
+  
+  # HTTP settings
+  http:
+    timeout: 30000  # 30 seconds
+    pool: 50        # Connection pool size
+    maxSockets: 50  # Max concurrent connections
+    
+  # TLS settings
+  tls:
+    rejectUnauthorized: false  # For development/testing
+    
+  # Default headers
+  defaults:
+    headers:
+      "User-Agent": "Artillery.io Load Test"
+      "Content-Type": "application/json"
+      "Accept": "application/json"
+      "X-API-Key": "{{ $processEnvironment.API_KEY || 'test-api-key' }}"
+  
+  # ==================================================
+  # Variables and Data
+  # ==================================================
+  variables:
+    models:
+      - "gpt-4"
+      - "gpt-3.5-turbo"
+      - "claude-3-opus"
+      - "claude-3-sonnet"
+      - "claude-3-haiku"
+    
+    benchmarks:
+      - "mmlu"
+      - "humaneval"
+      - "truthfulqa"
+      - "hellaswag"
+      - "math"
+      - "gsm8k"
+    
+    # Temperature values for model testing
+    temperatures:
+      - 0.0
+      - 0.3
+      - 0.5
+      - 0.7
+      - 1.0
+    
+    # Token limits
+    max_tokens:
+      - 100
+      - 500
+      - 1000
+      - 2000
+  
+  # Load external data
+  payload:
+    path: "./test-data.csv"
+    fields:
+      - "prompt"
+      - "category"
+      - "expected_length"
+    
+  # ==================================================
+  # Plugins and Extensions
+  # ==================================================
+  plugins:
+    # Metrics and monitoring
+    metrics-by-endpoint:
+      useOnlyRequestNames: true
+      
+    # AWS CloudWatch integration (if needed)
+    cloudwatch:
+      namespace: "Artillery/LoadTest"
+      region: "{{ $processEnvironment.AWS_REGION || 'us-east-1' }}"
+      
+    # Custom metrics
+    publish-metrics:
+      - type: "cloudwatch"
+        region: "us-east-1"
+      - type: "datadog"
+        apiKey: "{{ $processEnvironment.DATADOG_API_KEY }}"
+        
+    # HTML report generation
+    artillery-plugin-html-report:
+      output: "reports/artillery-report.html"
+      
+    # Slack notifications
+    artillery-plugin-slack:
+      webhookUrl: "{{ $processEnvironment.SLACK_WEBHOOK_URL }}"
+      channel: "#load-testing"
+      username: "Artillery Bot"
+      
+  # ==================================================
+  # Performance Thresholds
+  # ==================================================
+  ensure:
+    # Response time thresholds
+    p95: 2000    # 95th percentile < 2s
+    p99: 5000    # 99th percentile < 5s
+    
+    # Error rate thresholds
+    maxErrorRate: 5  # Max 5% error rate
+    
+    # Request rate thresholds
+    minRequestRate: 50  # Minimum requests per second
+    
+  # ==================================================
+  # Processor Functions
+  # ==================================================
+  processor: "./artillery-processor.js"
+
+# ==================================================
+# Test Scenarios
+# ==================================================
+scenarios:
+  # ==================================================
+  # Health Check Scenario
+  # ==================================================
+  - name: "Health Check"
+    weight: 10
+    flow:
+      - get:
+          url: "/health"
+          capture:
+            - json: "$.status"
+              as: "health_status"
+          expect:
+            - statusCode: 200
+            - hasProperty: "status"
+      
+      - think: 1
+      
+      - get:
+          url: "/api/v1/info"
+          expect:
+            - statusCode: 200
+            - hasProperty: "version"
+  
+  # ==================================================
+  # Authentication Scenario
+  # ==================================================
+  - name: "Authentication Flow"
+    weight: 15
+    flow:
+      # Login request
+      - post:
+          url: "/api/v1/auth/login"
+          json:
+            username: "test@example.com"
+            password: "testpassword"
+          capture:
+            - json: "$.access_token"
+              as: "auth_token"
+          expect:
+            - statusCode: 200
+      
+      # Use the token for authenticated requests
+      - get:
+          url: "/api/v1/auth/me"
+          headers:
+            Authorization: "Bearer {{ auth_token }}"
+          expect:
+            - statusCode: 200
+      
+      - think: 2
+  
+  # ==================================================
+  # Model Management Scenario
+  # ==================================================
+  - name: "Model Operations"
+    weight: 25
+    flow:
+      # List all models
+      - get:
+          url: "/api/v1/models"
+          expect:
+            - statusCode: 200
+            - contentType: json
+          capture:
+            - json: "$[0].id"
+              as: "model_id"
+      
+      - think: 1
+      
+      # Get specific model details
+      - get:
+          url: "/api/v1/models/{{ $randomString(models) }}"
+          expect:
+            - statusCode: [200, 404]  # Model might not exist
+      
+      # Model configuration test
+      - post:
+          url: "/api/v1/models/validate"
+          json:
+            model: "{{ $randomString(models) }}"
+            config:
+              temperature: "{{ $randomString(temperatures) }}"
+              max_tokens: "{{ $randomString(max_tokens) }}"
+          expect:
+            - statusCode: [200, 400]
+      
+      - think: 1
+  
+  # ==================================================
+  # Benchmark Operations Scenario
+  # ==================================================
+  - name: "Benchmark Operations"
+    weight: 20
+    flow:
+      # List benchmarks
+      - get:
+          url: "/api/v1/benchmarks"
+          expect:
+            - statusCode: 200
+          capture:
+            - json: "$[0].id"
+              as: "benchmark_id"
+      
+      - think: 1
+      
+      # Get benchmark details
+      - get:
+          url: "/api/v1/benchmarks/{{ $randomString(benchmarks) }}"
+          expect:
+            - statusCode: [200, 404]
+      
+      # Get benchmark questions (if available)
+      - get:
+          url: "/api/v1/benchmarks/{{ $randomString(benchmarks) }}/questions"
+          qs:
+            limit: 10
+            offset: 0
+          expect:
+            - statusCode: [200, 404]
+      
+      - think: 2
+  
+  # ==================================================
+  # Evaluation Scenario (Most Important)
+  # ==================================================
+  - name: "Evaluation Workflow"
+    weight: 40
+    flow:
+      # Create a new evaluation
+      - post:
+          url: "/api/v1/evaluations"
+          json:
+            model: "{{ $randomString(models) }}"
+            benchmark: "{{ $randomString(benchmarks) }}"
+            config:
+              temperature: "{{ $randomString(temperatures) }}"
+              max_tokens: "{{ $randomString(max_tokens) }}"
+              seed: 42
+            metadata:
+              test_run: true
+              load_test: true
+          capture:
+            - json: "$.id"
+              as: "evaluation_id"
+          expect:
+            - statusCode: [201, 202]  # Created or Accepted
+            - hasProperty: "id"
+      
+      - think: 3
+      
+      # Check evaluation status
+      - get:
+          url: "/api/v1/evaluations/{{ evaluation_id }}"
+          expect:
+            - statusCode: 200
+          capture:
+            - json: "$.status"
+              as: "eval_status"
+      
+      # Wait for evaluation to potentially complete
+      - think: 5
+      
+      # Check status again
+      - get:
+          url: "/api/v1/evaluations/{{ evaluation_id }}"
+          expect:
+            - statusCode: 200
+      
+      # Get evaluation results (if completed)
+      - get:
+          url: "/api/v1/evaluations/{{ evaluation_id }}/results"
+          expect:
+            - statusCode: [200, 202, 404]  # OK, Processing, or Not Found
+      
+      - think: 2
+  
+  # ==================================================
+  # Results and Analytics Scenario
+  # ==================================================
+  - name: "Results and Analytics"
+    weight: 15
+    flow:
+      # List recent evaluations
+      - get:
+          url: "/api/v1/evaluations"
+          qs:
+            limit: 20
+            status: "completed"
+            sort: "-created_at"
+          expect:
+            - statusCode: 200
+      
+      - think: 1
+      
+      # Get aggregated results
+      - get:
+          url: "/api/v1/results/aggregate"
+          qs:
+            model: "{{ $randomString(models) }}"
+            benchmark: "{{ $randomString(benchmarks) }}"
+            timeframe: "24h"
+          expect:
+            - statusCode: [200, 404]
+      
+      # Get leaderboard
+      - get:
+          url: "/api/v1/leaderboard"
+          qs:
+            benchmark: "{{ $randomString(benchmarks) }}"
+            limit: 10
+          expect:
+            - statusCode: 200
+      
+      # Export results (if available)
+      - get:
+          url: "/api/v1/results/export"
+          qs:
+            format: "csv"
+            model: "{{ $randomString(models) }}"
+            limit: 100
+          expect:
+            - statusCode: [200, 202]  # OK or Processing
+      
+      - think: 2
+  
+  # ==================================================
+  # Error Simulation Scenario
+  # ==================================================
+  - name: "Error Handling"
+    weight: 5
+    flow:
+      # Test invalid endpoints
+      - get:
+          url: "/api/v1/nonexistent"
+          expect:
+            - statusCode: 404
+      
+      # Test invalid model
+      - post:
+          url: "/api/v1/evaluations"
+          json:
+            model: "invalid-model"
+            benchmark: "{{ $randomString(benchmarks) }}"
+          expect:
+            - statusCode: [400, 422]  # Bad Request or Validation Error
+      
+      # Test malformed JSON
+      - post:
+          url: "/api/v1/evaluations"
+          body: "invalid json"
+          headers:
+            "Content-Type": "application/json"
+          expect:
+            - statusCode: 400
+      
+      - think: 1
+
+# ==================================================
+# Before/After Hooks
+# ==================================================
+before:
+  flow:
+    - log: "Starting Artillery load test against {{ target }}"
+    - log: "Test configuration: {{ phases.length }} phases"
+
+after:
+  flow:
+    - log: "Artillery load test completed"
+    - log: "Check reports/ directory for detailed results"
+
+# ==================================================
+# Custom Functions (referenced in processor)
+# ==================================================
+# These functions are implemented in artillery-processor.js:
+# - generateRandomPrompt()
+# - validateResponse()
+# - calculateMetrics()
+# - logCustomMetrics()

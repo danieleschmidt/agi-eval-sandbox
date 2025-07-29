@@ -1,0 +1,408 @@
+# CodeClimate configuration for AGI Evaluation Sandbox
+# Automated code quality and maintainability analysis
+# See: https://docs.codeclimate.com/docs/configuring-your-repository
+
+version: "2"
+
+# ==================================================
+# Exclude Patterns
+# ==================================================
+exclude_patterns:
+  # Dependencies and generated files
+  - "node_modules/"
+  - "dist/"
+  - "build/"
+  - "*.min.js"
+  - "*.min.css"
+  - "vendor/"
+  - "third_party/"
+  
+  # Python cache and generated files
+  - "__pycache__/"
+  - "*.pyc"
+  - "*.pyo"
+  - "*.pyd"
+  - ".pytest_cache/"
+  - ".mypy_cache/"
+  - ".coverage"
+  - "htmlcov/"
+  - "*.egg-info/"
+  
+  # Test files
+  - "tests/"
+  - "test_*.py"
+  - "*_test.py"
+  - "conftest.py"
+  - "*.test.js"
+  - "*.test.ts"
+  - "*.test.tsx"
+  - "*.spec.js"
+  - "*.spec.ts"
+  - "*.spec.tsx"
+  
+  # Configuration files
+  - "*.config.js"
+  - "*.config.ts"
+  - "webpack.config.js"
+  - "jest.config.js"
+  - "babel.config.js"
+  - "rollup.config.js"
+  - "vite.config.ts"
+  
+  # Documentation
+  - "docs/"
+  - "*.md"
+  - "*.rst"
+  - "*.txt"
+  
+  # Database migrations
+  - "migrations/"
+  - "alembic/"
+  
+  # Docker and deployment
+  - "docker/"
+  - "Dockerfile*"
+  - "docker-compose*.yml"
+  - "k8s/"
+  - "kubernetes/"
+  - "helm/"
+  
+  # Monitoring and ops
+  - "monitoring/"
+  - "grafana/"
+  - "prometheus/"
+  
+  # IDE and editor files
+  - ".vscode/"
+  - ".idea/"
+  - "*.swp"
+  - "*.swo"
+  - "*~"
+  
+  # OS files
+  - ".DS_Store"
+  - "Thumbs.db"
+  
+  # Git
+  - ".git/"
+  
+  # Logs
+  - "*.log"
+  - "logs/"
+  
+  # Environment files
+  - ".env*"
+  - "*.env"
+
+# ==================================================
+# Plugin Configuration
+# ==================================================
+plugins:
+  # Python analysis
+  duplication:
+    enabled: true
+    config:
+      threshold: 50  # Lines
+      languages:
+        python:
+          mass_threshold: 50
+        javascript:
+          mass_threshold: 60
+        typescript:
+          mass_threshold: 60
+  
+  # Maintainability checks
+  fixme:
+    enabled: true
+    config:
+      strings:
+        - "FIXME"
+        - "TODO"
+        - "HACK"
+        - "XXX"
+        - "BUG"
+        - "REFACTOR"
+  
+  # Security analysis
+  bandit:
+    enabled: true
+    config:
+      # Skip test files
+      skips: ["B101", "B601"]
+      exclude_dirs: ["tests", "test"]
+  
+  # Python complexity
+  radon:
+    enabled: true
+    config:
+      threshold: "C"  # Complexity threshold
+      exclude_patterns:
+        - "tests/"
+        - "conftest.py"
+        - "*_test.py"
+  
+  # Python style
+  pep8:
+    enabled: true
+    config:
+      max_line_length: 88
+      ignore:
+        - "E203"  # Whitespace before ':' (conflicts with black)
+        - "W503"  # Line break before binary operator
+  
+  # JavaScript/TypeScript linting
+  eslint:
+    enabled: true
+    config:
+      config: "dashboard/.eslintrc.js"
+    channel: "eslint-8"
+  
+  # TypeScript analysis
+  tslint:
+    enabled: false  # Using ESLint instead
+  
+  # SCSS/CSS analysis
+  scss-lint:
+    enabled: true
+  
+  # Git commit message analysis
+  git-legal:
+    enabled: true
+  
+  # Markdown analysis
+  markdownlint:
+    enabled: true
+    config:
+      # Allow HTML in markdown (for badges, etc.)
+      MD033: false
+      # Allow duplicate headers (common in READMEs)
+      MD024: false
+      # Line length
+      MD013:
+        line_length: 120
+        heading_line_length: 120
+        code_block_line_length: 120
+
+# ==================================================
+# Check Configuration
+# ==================================================
+checks:
+  # Argument count thresholds
+  argument-count:
+    config:
+      threshold: 5  # Maximum number of arguments
+  
+  # Complex logic threshold
+  complex-logic:
+    config:
+      threshold: 4
+  
+  # File line count
+  file-lines:
+    config:
+      threshold: 500
+  
+  # Method complexity
+  method-complexity:
+    config:
+      threshold: 10
+  
+  # Method line count
+  method-lines:
+    config:
+      threshold: 50
+  
+  # Nested control flow
+  nested-control-flow:
+    config:
+      threshold: 4
+  
+  # Return statements
+  return-statements:
+    config:
+      threshold: 4
+  
+  # Similar code blocks
+  similar-code:
+    config:
+      threshold: 50  # Lines
+  
+  # Identical code blocks
+  identical-code:
+    config:
+      threshold: 50  # Lines
+
+# ==================================================
+# Language-specific Configuration
+# ==================================================
+
+# Python configuration
+prepare:
+  # Install Python dependencies for analysis
+  python:
+    - pip install -r requirements.txt || true
+  
+  # Install Node.js dependencies
+  javascript:
+    - cd dashboard && npm ci || true
+
+# ==================================================
+# Quality Thresholds
+# ==================================================
+
+# Maintainability thresholds
+ratings:
+  paths:
+    # Core application code should have high standards
+    - path: "src/"
+      threshold: "B"
+    
+    # API code is critical
+    - path: "src/api/"
+      threshold: "A"
+    
+    # Worker code handles important processing
+    - path: "src/workers/"
+      threshold: "B"
+    
+    # Frontend code
+    - path: "dashboard/src/"
+      threshold: "B"
+    
+    # Configuration and scripts can be more lenient
+    - path: "scripts/"
+      threshold: "C"
+    
+    # Docker and deployment files
+    - path: "docker/"
+      threshold: "C"
+
+# ==================================================
+# Advanced Configuration
+# ==================================================
+
+# Enable beta features
+beta:
+  # Advanced duplication detection
+  duplication_detection: true
+  
+  # Machine learning-based analysis
+  ml_analysis: true
+  
+  # Security vulnerability detection
+  security_analysis: true
+
+# Test coverage integration
+coverage:
+  # Require coverage reports
+  precision: 2
+  range: "70...95"
+  round: nearest
+  
+  # Coverage files
+  paths:
+    - "coverage.xml"
+    - "dashboard/coverage/lcov.info"
+
+# Performance analysis
+performance:
+  enabled: true
+  
+  # Performance thresholds
+  thresholds:
+    # Bundle size limits
+    bundle_size: "2MB"
+    
+    # Load time limits
+    load_time: "3s"
+    
+    # Memory usage
+    memory_usage: "100MB"
+
+# ==================================================
+# Integration Configuration
+# ==================================================
+
+# GitHub integration
+github:
+  # Auto-assign reviewers for quality issues
+  auto_assign_reviewers: true
+  
+  # Create GitHub issues for critical problems
+  create_issues: false
+  
+  # Comment on pull requests
+  pr_comments: true
+
+# Slack integration (if configured)
+slack:
+  enabled: false
+  webhook_url: "${SLACK_WEBHOOK_URL}"
+  channel: "#code-quality"
+
+# ==================================================
+# Custom Engines
+# ==================================================
+
+# Custom analysis engines
+engines:
+  # Python security analysis
+  security-code-scan:
+    enabled: true
+    config:
+      timeout_minutes: 15
+  
+  # Dependency vulnerability scanning
+  bundler-audit:
+    enabled: false  # Python project
+  
+  # Node.js security
+  nodesecurity:
+    enabled: true
+    config:
+      path: "dashboard/"
+  
+  # YAML/JSON linting
+  yaml-lint:
+    enabled: true
+  
+  # Shell script analysis
+  shellcheck:
+    enabled: true
+    config:
+      exclude:
+        - "SC1091"  # Not following sourced files
+        - "SC2034"  # Variable appears unused
+
+# ==================================================
+# Reporting Configuration
+# ==================================================
+
+# Custom reporting
+reporting:
+  # Format for reports
+  format: "json"
+  
+  # Include technical debt calculations
+  include_debt: true
+  
+  # Include security analysis
+  include_security: true
+  
+  # Historical comparison
+  compare_branches: true
+
+# ==================================================
+# Experimental Features
+# ==================================================
+
+# Enable experimental features
+experimental:
+  # AI-powered code review
+  ai_review: true
+  
+  # Predictive analysis
+  predictive_analysis: true
+  
+  # Advanced pattern detection
+  pattern_detection: true

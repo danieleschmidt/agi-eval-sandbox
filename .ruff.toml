@@ -1,0 +1,462 @@
+# Ruff configuration for AGI Evaluation Sandbox
+# Modern Python linter and formatter with extensive rule set
+# See: https://docs.astral.sh/ruff/
+
+# ==================================================
+# General Configuration
+# ==================================================
+target-version = "py39"
+line-length = 88
+indent-width = 4
+
+# Assume Python 3.9+ syntax
+required-version = ">=0.1.6"
+
+# ==================================================
+# File Discovery
+# ==================================================
+
+# Include additional file types
+include = ["*.py", "*.pyi", "*.ipynb"]
+
+# Exclude patterns
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+    
+    # Project-specific exclusions
+    "migrations/",
+    "alembic/versions/",
+    "*_pb2.py",  # Protobuf generated files
+    "*_pb2_grpc.py",
+    "vendor/",
+    "third_party/",
+]
+
+# Respect gitignore files
+respect-gitignore = true
+
+# ==================================================
+# Rule Selection
+# ==================================================
+select = [
+    # Pyflakes
+    "F",
+    
+    # pycodestyle errors
+    "E",
+    
+    # pycodestyle warnings
+    "W",
+    
+    # isort
+    "I",
+    
+    # pydocstyle
+    "D",
+    
+    # pyupgrade
+    "UP",
+    
+    # flake8-2020
+    "YTT",
+    
+    # flake8-annotations
+    "ANN",
+    
+    # flake8-async
+    "ASYNC",
+    
+    # flake8-bandit
+    "S",
+    
+    # flake8-blind-except
+    "BLE",
+    
+    # flake8-boolean-trap
+    "FBT",
+    
+    # flake8-bugbear
+    "B",
+    
+    # flake8-builtins
+    "A",
+    
+    # flake8-commas
+    "COM",
+    
+    # flake8-comprehensions
+    "C4",
+    
+    # flake8-datetimez
+    "DTZ",
+    
+    # flake8-debugger
+    "T10",
+    
+    # flake8-django
+    "DJ",
+    
+    # flake8-errmsg
+    "EM",
+    
+    # flake8-executable
+    "EXE",
+    
+    # flake8-future-annotations
+    "FA",
+    
+    # flake8-implicit-str-concat
+    "ISC",
+    
+    # flake8-import-conventions
+    "ICN",
+    
+    # flake8-logging-format
+    "G",
+    
+    # flake8-no-pep420
+    "INP",
+    
+    # flake8-pie
+    "PIE",
+    
+    # flake8-print
+    "T20",
+    
+    # flake8-pyi
+    "PYI",
+    
+    # flake8-pytest-style
+    "PT",
+    
+    # flake8-quotes
+    "Q",
+    
+    # flake8-raise
+    "RSE",
+    
+    # flake8-return
+    "RET",
+    
+    # flake8-self
+    "SLF",
+    
+    # flake8-simplify
+    "SIM",
+    
+    # flake8-tidy-imports
+    "TID",
+    
+    # flake8-type-checking
+    "TCH",
+    
+    # flake8-unused-arguments
+    "ARG",
+    
+    # flake8-use-pathlib
+    "PTH",
+    
+    # pandas-vet
+    "PD",
+    
+    # pygrep-hooks
+    "PGH",
+    
+    # Pylint
+    "PL",
+    
+    # tryceratops
+    "TRY",
+    
+    # flynt
+    "FLY",
+    
+    # NumPy-specific rules
+    "NPY",
+    
+    # Airflow
+    "AIR",
+    
+    # Perflint
+    "PERF",
+    
+    # Refurb
+    "FURB",
+    
+    # flake8-logging
+    "LOG",
+    
+    # Ruff-specific rules
+    "RUF",
+]
+
+# Rules to ignore
+ignore = [
+    # ==================================================
+    # Pycodestyle (E, W)
+    # ==================================================
+    "E501",   # Line too long (handled by formatter)
+    "E203",   # Whitespace before ':' (conflicts with black)
+    "W503",   # Line break before binary operator (PEP 8 updated)
+    
+    # ==================================================
+    # pydocstyle (D)
+    # ==================================================
+    "D100",   # Missing docstring in public module
+    "D104",   # Missing docstring in public package
+    "D105",   # Missing docstring in magic method
+    "D107",   # Missing docstring in __init__
+    "D203",   # 1 blank line required before class docstring
+    "D204",   # 1 blank line required after class docstring
+    "D213",   # Multi-line docstring summary should start at the second line
+    "D215",   # Section underline is over-indented
+    "D400",   # First line should end with a period
+    "D401",   # First line should be in imperative mood
+    "D404",   # First word of the docstring should not be "This"
+    "D413",   # Missing blank line after last section
+    "D415",   # First line should end with a period, question mark, or exclamation point
+    
+    # ==================================================
+    # flake8-annotations (ANN)
+    # ==================================================
+    "ANN101", # Missing type annotation for self
+    "ANN102", # Missing type annotation for cls
+    "ANN401", # Dynamically typed expressions (Any) are disallowed
+    
+    # ==================================================
+    # flake8-boolean-trap (FBT)
+    # ==================================================
+    "FBT001", # Boolean positional arg in function definition
+    "FBT002", # Boolean default value in function definition
+    "FBT003", # Boolean positional value in function call
+    
+    # ==================================================
+    # flake8-commas (COM)
+    # ==================================================
+    "COM812", # Trailing comma missing (handled by formatter)
+    "COM819", # Trailing comma prohibited (handled by formatter)
+    
+    # ==================================================
+    # Pylint (PL)
+    # ==================================================
+    "PLR0913", # Too many arguments to function call
+    "PLR0915", # Too many statements
+    "PLR2004", # Magic value used in comparison
+    "PLW2901", # Outer loop variable overwritten by inner loop
+    
+    # ==================================================
+    # tryceratops (TRY)
+    # ==================================================
+    "TRY003", # Avoid specifying long messages outside exception class
+    "TRY300", # Consider moving statement to else clause
+    
+    # ==================================================
+    # flake8-simplify (SIM)
+    # ==================================================
+    "SIM108", # Use ternary operator instead of if-else-block
+    
+    # ==================================================
+    # Ruff-specific (RUF)
+    # ==================================================
+    "RUF012", # Mutable class attributes should be annotated with `ClassVar`
+]
+
+# Allow unused imports in __init__.py files
+unfixable = [
+    "F401",   # Unused imports
+    "F841",   # Unused variables
+]
+
+# ==================================================
+# Per-file Ignores
+# ==================================================
+[per-file-ignores]
+# Test files
+"tests/**/*.py" = [
+    "D",       # Ignore docstring rules in tests
+    "S101",    # Use of assert detected
+    "S106",    # Possible hardcoded password
+    "PLR2004", # Magic value in comparison
+    "ANN",     # Type annotations not required in tests
+    "ARG",     # Unused function arguments (fixtures)
+    "FBT",     # Boolean trap (common in test parameters)
+]
+
+# Configuration files
+"conftest.py" = ["D"]
+"**/conftest.py" = ["D"]
+
+# CLI entry points
+"**/cli.py" = ["T20"]  # Allow print statements in CLI
+"**/main.py" = ["T20"]  # Allow print statements in main
+
+# Scripts
+"scripts/**/*.py" = [
+    "T20",     # Print statements allowed in scripts
+    "S603",    # subprocess call without shell=True
+    "INP001",  # File is part of an implicit namespace package
+]
+
+# Migration files
+"**/migrations/**" = ["D", "ANN", "ARG"]
+"**/alembic/versions/**" = ["D", "ANN", "ARG"]
+
+# Generated files
+"*_pb2.py" = ["ALL"]
+"*_pb2_grpc.py" = ["ALL"]
+
+# __init__.py files
+"__init__.py" = [
+    "D104",    # Missing docstring in public package
+    "F401",    # Imported but unused (re-exports)
+    "F403",    # Star imports
+]
+
+# Jupyter notebooks
+"*.ipynb" = [
+    "T20",     # Print statements are common in notebooks
+    "D",       # Docstrings not required in notebooks
+    "E402",    # Module level import not at top
+    "F401",    # Imported but unused
+    "F811",    # Redefined while unused
+]
+
+# ==================================================
+# Plugin Configuration
+# ==================================================
+
+# flake8-quotes configuration
+[flake8-quotes]
+inline-quotes = "double"
+multiline-quotes = "double"
+docstring-quotes = "double"
+avoid-escape = true
+
+# flake8-tidy-imports configuration
+[flake8-tidy-imports]
+ban-relative-imports = "all"
+
+# isort configuration
+[isort]
+known-first-party = ["agi_eval_sandbox"]
+known-third-party = [
+    "fastapi",
+    "pydantic",
+    "sqlalchemy",
+    "alembic",
+    "celery",
+    "redis",
+    "pytest",
+    "openai",
+    "anthropic",
+    "transformers",
+    "torch",
+    "numpy",
+    "pandas",
+    "matplotlib",
+    "seaborn",
+    "plotly",
+    "streamlit",
+    "jupyter",
+]
+split-on-trailing-comma = true
+
+# pydocstyle configuration
+[pydocstyle]
+convention = "google"
+
+# flake8-pytest-style configuration
+[flake8-pytest-style]
+fixture-parentheses = false
+parametrize-names-type = "tuple"
+parametrize-values-type = "tuple"
+parametrize-values-row-type = "tuple"
+
+# ==================================================
+# Output Configuration
+# ==================================================
+
+# Output format
+output-format = "grouped"
+
+# Show source code in output
+show-source = true
+
+# Show fixes that would be applied
+show-fixes = true
+
+# ==================================================
+# Cache Configuration
+# ==================================================
+
+# Cache settings
+cache-dir = ".ruff_cache"
+
+# Force cache refresh
+force-exclude = true
+
+# ==================================================
+# Formatting Configuration
+# ==================================================
+
+[format]
+# Quote style
+quote-style = "double"
+
+# Indent style
+indent-style = "space"
+
+# Skip magic trailing commas
+skip-magic-trailing-comma = false
+
+# Line ending style
+line-ending = "auto"
+
+# Docstring formatting
+docstring-code-format = true
+docstring-code-line-length = 72
+
+# ==================================================
+# Lint Configuration
+# ==================================================
+
+[lint]
+# Dummy imports
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+# Task tags
+task-tags = ["TODO", "FIXME", "XXX", "HACK", "BUG", "REFACTOR"]
+
+# Typing modules
+typing-modules = ["typing", "typing_extensions"]
+
+# External dependencies
+explicit-preview-rules = true
+
+# Logger objects
+logger-objects = ["logging.getLogger"]
+
+# ==================================================
+# Preview Rules
+# ==================================================
+preview = true
