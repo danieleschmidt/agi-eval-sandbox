@@ -1,0 +1,67 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    ":automergeDigest",
+    ":automergeMinor",
+    "group:monorepos",
+    "group:recommended",
+    "workarounds:all"
+  ],
+  "timezone": "UTC",
+  "schedule": ["before 6am on monday"],
+  "labels": ["dependencies"],
+  "assignees": ["@danieleschmidt"],
+  "reviewers": ["@danieleschmidt"],
+  "packageRules": [
+    {
+      "matchPackagePatterns": ["^@types/"],
+      "groupName": "TypeScript definitions",
+      "automerge": true
+    },
+    {
+      "matchPackagePatterns": ["^eslint", "^@typescript-eslint/"],
+      "groupName": "ESLint packages",
+      "automerge": true
+    },
+    {
+      "matchPackageNames": ["black", "isort", "flake8", "mypy", "bandit"],
+      "groupName": "Python linting tools",
+      "automerge": true
+    },
+    {
+      "matchCategories": ["python"],
+      "rangeStrategy": "pin"
+    },
+    {
+      "matchDepTypes": ["devDependencies"],
+      "automerge": true,
+      "schedule": ["before 6am on monday"]
+    },
+    {
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true,
+      "addLabels": ["major-update"]
+    },
+    {
+      "matchPackagePatterns": ["^@playwright/"],
+      "groupName": "Playwright packages"
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "schedule": ["at any time"],
+    "dependencyDashboardApproval": false,
+    "rangeStrategy": "update-lockfile"
+  },
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 6am on monday"],
+    "automerge": true
+  },
+  "python": {
+    "ignorePaths": ["**/tests/**", "**/test_*.py"]
+  }
+}
