@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Discord Community
+    url: https://discord.gg/your-org
+    about: Join our Discord community for general questions and discussions
+  - name: 📖 Documentation
+    url: https://docs.your-org.com/agi-eval
+    about: Check our comprehensive documentation for guides and tutorials
+  - name: 🚀 Feature Requests
+    url: https://github.com/your-org/agi-eval-sandbox/discussions/categories/feature-requests
+    about: Suggest new features and improvements via GitHub Discussions
+  - name: 📧 Security Issues
+    url: mailto:security@your-org.com
+    about: Please report security vulnerabilities responsibly via email

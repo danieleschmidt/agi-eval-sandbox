@@ -1,0 +1,128 @@
+name: ⚡ Performance Issue
+description: Report performance problems or optimization requests
+title: "[Performance]: "
+labels: ["performance", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a performance issue! 🚀
+        
+        Performance issues help us make the software faster for everyone.
+
+  - type: dropdown
+    id: performance_type
+    attributes:
+      label: Performance Issue Type
+      description: What type of performance issue are you experiencing?
+      options:
+        - Slow response times
+        - High memory usage
+        - High CPU usage
+        - Long startup time
+        - Inefficient algorithm
+        - Database performance
+        - Network performance
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Performance Issue Description
+      description: Describe the performance problem you're experiencing
+      placeholder: What performance issue are you seeing?
+    validations:
+      required: true
+
+  - type: textarea
+    id: measurements
+    attributes:
+      label: Performance Measurements
+      description: Include any performance metrics, timings, or profiling data
+      placeholder: |
+        - Response time: 5.2 seconds (expected: <1 second)
+        - Memory usage: 8GB (grows continuously)
+        - CPU usage: 95% constant
+        - Load time: 30 seconds
+      render: yaml
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment Details
+      description: Information about your environment and load conditions
+      value: |
+        - OS: [e.g., Ubuntu 22.04]
+        - Python Version: [e.g., 3.11.0]
+        - Package Version: [e.g., 0.1.0]
+        - Hardware: [e.g., 16GB RAM, 8 CPU cores]
+        - Dataset Size: [e.g., 1M records, 5GB files]
+        - Concurrent Users: [e.g., 100 simultaneous users]
+        - Docker/Container: [Yes/No]
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: How can we reproduce this performance issue?
+      placeholder: |
+        1. Load dataset with X records
+        2. Execute operation Y
+        3. Monitor memory/CPU usage
+        4. Observe performance degradation
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_performance
+    attributes:
+      label: Expected Performance
+      description: What performance did you expect?
+      placeholder: Expected response time of <1 second, memory usage to remain stable
+
+  - type: textarea
+    id: profiling_data
+    attributes:
+      label: Profiling Data
+      description: Include any profiling output, flame graphs, or performance analysis
+      render: text
+      placeholder: Paste profiling output, benchmark results, or attach performance analysis files
+
+  - type: checkboxes
+    id: optimization_attempts
+    attributes:
+      label: Optimization Attempts
+      description: Have you tried any optimizations?
+      options:
+        - label: Adjusted configuration parameters
+        - label: Tried different algorithms/approaches
+        - label: Optimized database queries
+        - label: Increased hardware resources
+        - label: Used caching mechanisms
+        - label: Profiled the code
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Business Impact
+      description: How does this performance issue affect your use case?
+      placeholder: Prevents processing large datasets, affects user experience, blocks production deployment
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How urgent is this performance issue?
+      options:
+        - Low - Nice to have optimization
+        - Medium - Affects productivity
+        - High - Blocks important functionality
+        - Critical - System unusable for intended purpose
+    validations:
+      required: true
