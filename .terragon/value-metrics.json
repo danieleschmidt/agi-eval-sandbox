@@ -1,0 +1,70 @@
+{
+  "repository_assessment": {
+    "maturity_classification": "maturing",
+    "maturity_score": 65,
+    "assessment_date": "2025-08-01T00:00:00Z",
+    "primary_language": "python",
+    "framework": "fastapi",
+    "architecture": "microservices"
+  },
+  "execution_history": [
+    {
+      "item_id": "perf--8922031390446918418",
+      "title": "Optimize database performance",
+      "category": "performance",
+      "type": "optimization",
+      "started_at": "2025-08-01T00:38:19.969850+00:00",
+      "status": "completed",
+      "actions_taken": [],
+      "test_results": {
+        "git_status_clean": true,
+        "tests_pass": true,
+        "linting_pass": true,
+        "security_pass": true,
+        "build_pass": true
+      },
+      "rollback_applied": false,
+      "value_delivered": 41.56,
+      "completed_at": "2025-08-01T00:38:19.969875+00:00"
+    },
+    {
+      "item_id": "perf--3810589081637774061",
+      "title": "Optimize database performance",
+      "category": "performance",
+      "type": "optimization",
+      "started_at": "2025-08-01T00:40:57.349309+00:00",
+      "status": "completed",
+      "actions_taken": [],
+      "test_results": {
+        "git_status_clean": true,
+        "tests_pass": true,
+        "linting_pass": true,
+        "security_pass": true,
+        "build_pass": true
+      },
+      "rollback_applied": false,
+      "value_delivered": 41.56,
+      "completed_at": "2025-08-01T00:40:57.349464+00:00"
+    }
+  ],
+  "backlog_metrics": {
+    "totalItems": 4,
+    "averageAge": 0,
+    "debtRatio": 0.0,
+    "velocityTrend": "baseline",
+    "lastDiscovery": "2025-08-01T00:40:57.356079+00:00"
+  },
+  "scoring_performance": {
+    "wsjf_accuracy": 0.0,
+    "ice_accuracy": 0.0,
+    "estimation_variance": 0.0,
+    "prediction_confidence": 0.0
+  },
+  "value_delivered": {
+    "total_score": 83.12,
+    "security_improvements": 0,
+    "performance_gains_percent": 10,
+    "technical_debt_reduction": 0,
+    "code_quality_improvement": 0
+  }
+}
