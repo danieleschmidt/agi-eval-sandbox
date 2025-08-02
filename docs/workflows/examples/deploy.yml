@@ -1,0 +1,408 @@
+# Comprehensive Deployment Workflow Template
+# Copy this to .github/workflows/deploy.yml
+
+name: Deploy
+
+on:
+  push:
+    branches: [ main, develop ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Build and Push Container Images
+  build-and-push:
+    name: Build and Push Images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+      digest: ${{ steps.build.outputs.digest }}
+      version: ${{ steps.meta.outputs.version }}
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+            
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
+            VCS_REF=${{ github.sha }}
+            
+      - name: Output image reference
+        id: image
+        run: |
+          echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}" >> $GITHUB_OUTPUT
+
+  # Generate and Sign SBOM
+  generate-sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    needs: [build-and-push]
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    
+    steps:
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ needs.build-and-push.outputs.image }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+          
+      - name: Sign SBOM with cosign
+        uses: sigstore/cosign-installer@v3
+        
+      - name: Sign SBOM
+        run: |
+          cosign sign-blob --yes sbom.spdx.json --output-signature sbom.spdx.json.sig
+          
+      - name: Attach SBOM to image
+        run: |
+          cosign attach sbom --sbom sbom.spdx.json ${{ needs.build-and-push.outputs.image }}
+          
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v3
+        with:
+          name: sbom
+          path: |
+            sbom.spdx.json
+            sbom.spdx.json.sig
+
+  # Deploy to Staging
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [build-and-push, generate-sbom]
+    if: |
+      (github.ref == 'refs/heads/develop') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')
+    environment:
+      name: staging
+      url: https://staging.agi-eval.com
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+          
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+          
+      - name: Configure kubectl
+        run: |
+          aws eks update-kubeconfig --region us-east-1 --name agi-eval-staging
+          
+      - name: Deploy to Kubernetes
+        run: |
+          # Update deployment with new image
+          kubectl set image deployment/agi-eval-app \
+            agi-eval=${{ needs.build-and-push.outputs.image }} \
+            --namespace=staging
+            
+          # Wait for rollout to complete
+          kubectl rollout status deployment/agi-eval-app --namespace=staging --timeout=300s
+          
+      - name: Run smoke tests
+        run: |
+          # Wait for deployment to be ready
+          sleep 30
+          
+          # Basic health check
+          curl -f https://staging.agi-eval.com/health || exit 1
+          
+          # API endpoint tests
+          curl -f https://staging.agi-eval.com/api/v1/models || exit 1
+          
+          # Database connectivity test
+          curl -f https://staging.agi-eval.com/api/v1/health/database || exit 1
+          
+      - name: Run integration tests
+        run: |
+          # Run lightweight integration tests
+          npm run test:integration:staging
+          
+      - name: Update deployment status
+        if: always()
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const { context } = require('@actions/github');
+            const deploymentStatus = '${{ job.status }}' === 'success' ? 'success' : 'failure';
+            
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: context.payload.deployment?.id || 0,
+              state: deploymentStatus,
+              environment_url: 'https://staging.agi-eval.com',
+              description: `Staging deployment ${deploymentStatus}`
+            });
+
+  # Deploy to Production
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build-and-push, generate-sbom]
+    if: |
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+    environment:
+      name: production
+      url: https://agi-eval.com
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_PROD }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_PROD }}
+          aws-region: us-east-1
+          
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+          
+      - name: Configure kubectl
+        run: |
+          aws eks update-kubeconfig --region us-east-1 --name agi-eval-production
+          
+      - name: Create backup
+        run: |
+          # Create database backup before deployment
+          kubectl create job backup-$(date +%Y%m%d-%H%M%S) \
+            --from=cronjob/database-backup \
+            --namespace=production
+            
+      - name: Deploy to Kubernetes with Blue-Green strategy
+        run: |
+          # Clone current deployment to green
+          kubectl get deployment agi-eval-app -o yaml --namespace=production > current-deployment.yaml
+          
+          # Update image in green deployment
+          sed 's/agi-eval-app/agi-eval-app-green/g' current-deployment.yaml | \
+          sed 's|image: .*|image: ${{ needs.build-and-push.outputs.image }}|g' | \
+          kubectl apply -f -
+          
+          # Wait for green deployment to be ready
+          kubectl rollout status deployment/agi-eval-app-green --namespace=production --timeout=600s
+          
+      - name: Run production smoke tests
+        run: |
+          # Get green service endpoint
+          GREEN_ENDPOINT=$(kubectl get service agi-eval-app-green-service --namespace=production -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          
+          # Test green deployment
+          curl -f http://$GREEN_ENDPOINT/health || exit 1
+          curl -f http://$GREEN_ENDPOINT/api/v1/models || exit 1
+          
+      - name: Switch traffic to green deployment
+        run: |
+          # Update service selector to point to green deployment
+          kubectl patch service agi-eval-app-service \
+            --namespace=production \
+            --patch '{"spec":{"selector":{"version":"green"}}}'
+            
+      - name: Run comprehensive production tests
+        run: |
+          # Wait for traffic switch
+          sleep 60
+          
+          # Run full production test suite
+          curl -f https://agi-eval.com/health || exit 1
+          curl -f https://agi-eval.com/api/v1/models || exit 1
+          curl -f https://agi-eval.com/api/v1/health/database || exit 1
+          
+          # Run critical path tests
+          npm run test:production:critical
+          
+      - name: Cleanup old deployment
+        if: success()
+        run: |
+          # Remove blue deployment
+          kubectl delete deployment agi-eval-app --namespace=production || true
+          
+          # Rename green deployment to main
+          kubectl patch deployment agi-eval-app-green \
+            --namespace=production \
+            --patch '{"metadata":{"name":"agi-eval-app"}}'
+            
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          # Revert service to point back to blue deployment
+          kubectl patch service agi-eval-app-service \
+            --namespace=production \
+            --patch '{"spec":{"selector":{"version":"blue"}}}'
+            
+          # Remove failed green deployment
+          kubectl delete deployment agi-eval-app-green --namespace=production || true
+          
+      - name: Update deployment status
+        if: always()
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const { context } = require('@actions/github');
+            const deploymentStatus = '${{ job.status }}' === 'success' ? 'success' : 'failure';
+            
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: context.payload.deployment?.id || 0,
+              state: deploymentStatus,
+              environment_url: 'https://agi-eval.com',
+              description: `Production deployment ${deploymentStatus}`
+            });
+
+  # Post-deployment Security Scan
+  post-deploy-security:
+    name: Post-deployment Security Scan
+    runs-on: ubuntu-latest
+    needs: [deploy-staging, deploy-production]
+    if: always() && (needs.deploy-staging.result == 'success' || needs.deploy-production.result == 'success')
+    
+    steps:
+      - name: Determine target URL
+        id: target
+        run: |
+          if [[ "${{ needs.deploy-production.result }}" == "success" ]]; then
+            echo "url=https://agi-eval.com" >> $GITHUB_OUTPUT
+            echo "env=production" >> $GITHUB_OUTPUT
+          else
+            echo "url=https://staging.agi-eval.com" >> $GITHUB_OUTPUT
+            echo "env=staging" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: OWASP ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.10.0
+        with:
+          target: ${{ steps.target.outputs.url }}
+          rules_file_name: '.zap/rules.tsv'
+          cmd_options: '-a'
+          
+      - name: SSL/TLS Security Test
+        run: |
+          # Test SSL configuration
+          curl -I ${{ steps.target.outputs.url }} | grep -i "strict-transport-security" || echo "::warning::HSTS header missing"
+          
+          # Test for security headers
+          curl -I ${{ steps.target.outputs.url }} | grep -i "x-frame-options" || echo "::warning::X-Frame-Options header missing"
+          curl -I ${{ steps.target.outputs.url }} | grep -i "x-content-type-options" || echo "::warning::X-Content-Type-Options header missing"
+
+  # Notify Deployment Status
+  notify:
+    name: Notify Deployment Status
+    runs-on: ubuntu-latest
+    needs: [build-and-push, deploy-staging, deploy-production]
+    if: always()
+    
+    steps:
+      - name: Notify Slack
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          channel: '#deployments'
+          text: |
+            Deployment completed for ${{ github.repository }}
+            
+            Branch/Tag: ${{ github.ref_name }}
+            Version: ${{ needs.build-and-push.outputs.version }}
+            Image: ${{ needs.build-and-push.outputs.image }}
+            
+            Staging: ${{ needs.deploy-staging.result || 'skipped' }}
+            Production: ${{ needs.deploy-production.result || 'skipped' }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v') && needs.deploy-production.result == 'success'
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: Release ${{ github.ref_name }}
+          body: |
+            ## Changes
+            
+            See [CHANGELOG.md](CHANGELOG.md) for detailed changes.
+            
+            ## Docker Image
+            
+            ```
+            docker pull ${{ needs.build-and-push.outputs.image }}
+            ```
+            
+            ## Deployment Information
+            
+            - **Staging**: ${{ needs.deploy-staging.result || 'skipped' }}
+            - **Production**: ${{ needs.deploy-production.result }}
+            - **Image**: `${{ needs.build-and-push.outputs.image }}`
+            - **SBOM**: Available in release artifacts
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
