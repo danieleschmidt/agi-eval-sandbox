@@ -1,0 +1,258 @@
+# Alertmanager configuration for AGI Evaluation Sandbox
+global:
+  smtp_smarthost: '${SMTP_HOST}:587'
+  smtp_from: 'alerts@agi-eval.com'
+  smtp_auth_username: '${SMTP_USERNAME}'
+  smtp_auth_password: '${SMTP_PASSWORD}'
+  slack_api_url: '${SLACK_WEBHOOK_URL}'
+
+# Templates for alert formatting
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# Route configuration
+route:
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 12h
+  receiver: 'default'
+  routes:
+    # Critical alerts go to multiple channels immediately
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      group_wait: 0s
+      repeat_interval: 5m
+      
+    # Warning alerts are grouped and sent less frequently  
+    - match:
+        severity: warning
+      receiver: 'warning-alerts'
+      group_wait: 30s
+      repeat_interval: 2h
+      
+    # Info alerts during business hours only
+    - match:
+        severity: info
+      receiver: 'info-alerts'
+      active_time_intervals:
+        - business-hours
+        
+    # Database alerts to DBA team
+    - match_re:
+        service: postgres|redis|database
+      receiver: 'database-team'
+      
+    # Security alerts to security team
+    - match_re:
+        alertname: Security.*|Auth.*|Intrusion.*
+      receiver: 'security-team'
+      group_wait: 0s
+      
+    # Performance alerts to devops
+    - match_re:
+        alertname: High.*|Slow.*|Performance.*
+      receiver: 'devops-team'
+
+# Time intervals for conditional routing
+time_intervals:
+  - name: business-hours
+    time_intervals:
+      - times:
+          - start_time: '09:00'
+            end_time: '17:00'
+        weekdays: ['monday:friday']
+        
+  - name: out-of-hours
+    time_intervals:
+      - times:
+          - start_time: '17:01'
+            end_time: '08:59'
+        weekdays: ['monday:friday']
+      - weekdays: ['saturday', 'sunday']
+
+# Inhibition rules to reduce noise
+inhibit_rules:
+  # If service is down, don't alert on high response times
+  - source_matchers:
+      - alertname = "ServiceDown"
+    target_matchers:
+      - alertname = "HighResponseTime"
+    equal: ['service', 'instance']
+    
+  # If host is down, don't alert on service issues
+  - source_matchers:
+      - alertname = "HostDown"
+    target_matchers:
+      - severity != "critical"
+    equal: ['instance']
+    
+  # If database is down, don't alert on connection issues
+  - source_matchers:
+      - alertname = "DatabaseDown"
+    target_matchers:
+      - alertname =~ "Database.*"
+    equal: ['instance']
+
+# Receivers configuration
+receivers:
+  # Default receiver (should not receive alerts normally)
+  - name: 'default'
+    slack_configs:
+      - channel: '#agi-eval-default'
+        title: 'Uncategorized Alert'
+        text: |
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          *Severity:* {{ .Labels.severity }}
+          {{ end }}
+
+  # Critical alerts - multiple channels
+  - name: 'critical-alerts'
+    email_configs:
+      - to: 'oncall@agi-eval.com'
+        subject: '🚨 CRITICAL: {{ .GroupLabels.alertname }}'
+        html: |
+          <h2>Critical Alert Fired</h2>
+          {{ range .Alerts }}
+          <h3>{{ .Annotations.summary }}</h3>
+          <p><strong>Description:</strong> {{ .Annotations.description }}</p>
+          <p><strong>Labels:</strong></p>
+          <ul>
+          {{ range .Labels.SortedPairs }}
+            <li>{{ .Name }}: {{ .Value }}</li>
+          {{ end }}
+          </ul>
+          <p><strong>Started:</strong> {{ .StartsAt.Format "2006-01-02 15:04:05 UTC" }}</p>
+          {{ end }}
+          
+    slack_configs:
+      - channel: '#agi-eval-critical'
+        color: 'danger'
+        title: '🚨 CRITICAL ALERT'
+        text: |
+          {{ range .Alerts }}
+          *Summary:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          *Service:* {{ .Labels.service }}
+          *Instance:* {{ .Labels.instance }}
+          *Started:* {{ .StartsAt.Format "15:04:05 UTC" }}
+          {{ end }}
+        actions:
+          - type: button
+            text: 'View in Grafana'
+            url: '${GRAFANA_URL}/d/agi_eval_app'
+          - type: button
+            text: 'Check Logs'
+            url: '${KIBANA_URL}/app/discover'
+            
+    webhook_configs:
+      - url: '${PAGERDUTY_WEBHOOK_URL}'
+        send_resolved: true
+
+  # Warning alerts - Slack only
+  - name: 'warning-alerts'
+    slack_configs:
+      - channel: '#agi-eval-warnings'
+        color: 'warning'
+        title: '⚠️ Warning Alert'
+        text: |
+          {{ .CommonAnnotations.summary }}
+          
+          {{ range .Alerts }}
+          • {{ .Annotations.description }}
+          {{ end }}
+          
+          *Count:* {{ len .Alerts }} alert(s)
+
+  # Info alerts - minimal notification
+  - name: 'info-alerts'
+    slack_configs:
+      - channel: '#agi-eval-info'
+        color: 'good'
+        title: 'ℹ️ Information'
+        text: |
+          {{ .CommonAnnotations.summary }}
+          *Count:* {{ len .Alerts }} alert(s)
+
+  # Database team alerts
+  - name: 'database-team'
+    email_configs:
+      - to: 'dba@agi-eval.com'
+        subject: 'Database Alert: {{ .GroupLabels.alertname }}'
+        body: |
+          Database alert fired:
+          
+          {{ range .Alerts }}
+          Summary: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Database: {{ .Labels.database }}
+          Instance: {{ .Labels.instance }}
+          {{ end }}
+          
+    slack_configs:
+      - channel: '#database-alerts'
+        color: 'warning'
+        title: '🗄️ Database Alert'
+        text: |
+          {{ range .Alerts }}
+          *Database:* {{ .Labels.database }}
+          *Issue:* {{ .Annotations.summary }}
+          *Details:* {{ .Annotations.description }}
+          {{ end }}
+
+  # Security team alerts
+  - name: 'security-team'
+    email_configs:
+      - to: 'security@agi-eval.com'
+        subject: '🔒 SECURITY ALERT: {{ .GroupLabels.alertname }}'
+        body: |
+          Security alert detected:
+          
+          {{ range .Alerts }}
+          Summary: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Source: {{ .Labels.instance }}
+          User: {{ .Labels.user_id | default "unknown" }}
+          {{ end }}
+          
+          Please investigate immediately.
+          
+    slack_configs:
+      - channel: '#security-alerts'
+        color: 'danger'
+        title: '🔒 SECURITY ALERT'
+        text: |
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Details:* {{ .Annotations.description }}
+          *Source:* {{ .Labels.instance }}
+          {{ if .Labels.user_id }}*User:* {{ .Labels.user_id }}{{ end }}
+          {{ end }}
+
+  # DevOps team alerts
+  - name: 'devops-team'
+    email_configs:
+      - to: 'devops@agi-eval.com'
+        subject: 'Performance Alert: {{ .GroupLabels.alertname }}'
+        
+    slack_configs:
+      - channel: '#devops-alerts'
+        color: 'warning'
+        title: '⚡ Performance Alert'
+        text: |
+          {{ range .Alerts }}
+          *Service:* {{ .Labels.service }}
+          *Issue:* {{ .Annotations.summary }}
+          *Details:* {{ .Annotations.description }}
+          *Instance:* {{ .Labels.instance }}
+          {{ end }}
+        actions:
+          - type: button
+            text: 'Performance Dashboard'
+            url: '${GRAFANA_URL}/d/performance'
+          - type: button
+            text: 'Scale Up'
+            url: '${SCALING_WEBHOOK_URL}'

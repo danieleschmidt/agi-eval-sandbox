@@ -1,0 +1,171 @@
+# Health Check Configuration for AGI Evaluation Sandbox
+# =====================================================
+
+version: '1.0'
+
+health_checks:
+  # API Health Checks
+  api:
+    endpoint: "http://localhost:8000/health"
+    method: "GET"
+    timeout: 5
+    interval: 30
+    retries: 3
+    expected_status: 200
+    expected_body:
+      status: "healthy"
+      version: ".*"
+    headers:
+      User-Agent: "Health-Check/1.0"
+    
+  # Dashboard Health Check
+  dashboard:
+    endpoint: "http://localhost:8080/health"
+    method: "GET"
+    timeout: 5
+    interval: 30
+    retries: 3
+    expected_status: 200
+    
+  # Database Health Check
+  database:
+    type: "postgresql"
+    connection_string: "${DATABASE_URL}"
+    query: "SELECT 1"
+    timeout: 10
+    interval: 60
+    retries: 3
+    
+  # Redis Health Check
+  redis:
+    type: "redis"
+    connection_string: "${REDIS_URL}"
+    command: "ping"
+    timeout: 5
+    interval: 30
+    retries: 3
+    expected_response: "PONG"
+    
+  # External API Dependencies
+  openai:
+    endpoint: "https://api.openai.com/v1/models"
+    method: "GET"
+    timeout: 10
+    interval: 300  # 5 minutes
+    retries: 2
+    expected_status: 200
+    headers:
+      Authorization: "Bearer ${OPENAI_API_KEY}"
+    optional: true  # Don't fail overall health if this fails
+    
+  anthropic:
+    endpoint: "https://api.anthropic.com/v1/messages"
+    method: "POST"
+    timeout: 10
+    interval: 300
+    retries: 2
+    headers:
+      x-api-key: "${ANTHROPIC_API_KEY}"
+      content-type: "application/json"
+    body: |
+      {
+        "model": "claude-3-haiku-20240307",
+        "max_tokens": 1,
+        "messages": [{"role": "user", "content": "test"}]
+      }
+    expected_status: 200
+    optional: true
+
+# Alert Configuration
+alerts:
+  channels:
+    slack:
+      webhook_url: "${SLACK_WEBHOOK_URL}"
+      channel: "#agi-eval-alerts"
+      username: "AGI-Eval-Monitor"
+      
+    email:
+      smtp_host: "${SMTP_HOST}"
+      smtp_port: 587
+      username: "${SMTP_USERNAME}"
+      password: "${SMTP_PASSWORD}"
+      from: "noreply@agi-eval.com"
+      to: ["admin@agi-eval.com", "devops@agi-eval.com"]
+      
+    webhook:
+      url: "${ALERT_WEBHOOK_URL}"
+      method: "POST"
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Bearer ${ALERT_TOKEN}"
+
+  rules:
+    critical:
+      - name: "Service Down"
+        condition: "health_check_success == 0"
+        duration: "1m"
+        channels: ["slack", "email"]
+        message: "🚨 CRITICAL: Service {{$labels.service}} is down!"
+        
+    warning:
+      - name: "High Response Time"
+        condition: "health_check_duration > 2"
+        duration: "5m" 
+        channels: ["slack"]
+        message: "⚠️ WARNING: Service {{$labels.service}} response time is high ({{$value}}s)"
+        
+      - name: "External API Issues"
+        condition: "health_check_success{optional=\"true\"} == 0"
+        duration: "10m"
+        channels: ["slack"]
+        message: "⚠️ WARNING: External API {{$labels.service}} is having issues"
+
+# Monitoring Configuration
+monitoring:
+  metrics:
+    enabled: true
+    endpoint: "/metrics"
+    port: 9090
+    
+  tracing:
+    enabled: true
+    jaeger_endpoint: "http://jaeger:14268/api/traces"
+    sample_rate: 0.1
+    
+  logging:
+    level: "info"
+    format: "json"
+    structured: true
+    correlation_id: true
+    
+# Performance Thresholds
+thresholds:
+  response_time:
+    excellent: 0.1   # < 100ms
+    good: 0.5        # < 500ms
+    acceptable: 2.0  # < 2s
+    poor: 5.0        # > 5s
+    
+  availability:
+    target: 99.9     # 99.9% uptime
+    warning: 99.5    # Alert if below 99.5%
+    critical: 99.0   # Critical if below 99%
+    
+  throughput:
+    baseline: 100    # 100 req/s baseline
+    warning: 50      # Alert if below 50% of baseline
+    critical: 25     # Critical if below 25% of baseline
+
+# Maintenance Windows
+maintenance:
+  windows:
+    - name: "Weekly Maintenance"
+      schedule: "0 2 * * 0"  # Sunday 2 AM UTC
+      duration: "2h"
+      disable_alerts: true
+      
+    - name: "Monthly Deployment"
+      schedule: "0 1 1 * *"  # First day of month, 1 AM UTC
+      duration: "4h"
+      disable_alerts: false
+      notification_channels: ["slack"]
