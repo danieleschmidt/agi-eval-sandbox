@@ -1,0 +1,208 @@
+# Docker Compose configuration for testing
+version: '3.8'
+
+services:
+  # Test Database
+  postgres-test:
+    image: postgres:15-alpine
+    container_name: agi-eval-postgres-test
+    environment:
+      POSTGRES_DB: agi_eval_test_db
+      POSTGRES_USER: agi_eval_test
+      POSTGRES_PASSWORD: agi_eval_test_password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agi_eval_test -d agi_eval_test_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - test-network
+
+  # Test Redis
+  redis-test:
+    image: redis:7-alpine
+    container_name: agi-eval-redis-test
+    command: redis-server --appendonly yes --requirepass agi_eval_test_redis_password
+    volumes:
+      - redis_test_data:/data
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - test-network
+
+  # API Tests
+  api-test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: python-builder
+    container_name: agi-eval-api-test
+    environment:
+      - ENVIRONMENT=test
+      - DATABASE_URL=postgresql://agi_eval_test:agi_eval_test_password@postgres-test:5432/agi_eval_test_db
+      - REDIS_URL=redis://:agi_eval_test_redis_password@redis-test:6379/0
+      - SECRET_KEY=test-secret-key-not-for-production
+      - LOG_LEVEL=DEBUG
+      - TESTING=true
+    volumes:
+      - ./tests:/app/tests:ro
+      - ./coverage:/app/coverage
+      - test_artifacts:/app/test-results
+    command: >
+      sh -c "
+        pip install pytest pytest-cov pytest-asyncio pytest-mock &&
+        python -m pytest tests/ 
+          --verbose 
+          --cov=src 
+          --cov-report=html:/app/coverage/api
+          --cov-report=xml:/app/test-results/api-coverage.xml
+          --cov-report=term
+          --junitxml=/app/test-results/api-results.xml
+          --cov-fail-under=70
+      "
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+    networks:
+      - test-network
+
+  # Dashboard Tests
+  dashboard-test:
+    image: node:18-alpine
+    container_name: agi-eval-dashboard-test
+    working_dir: /app
+    environment:
+      - NODE_ENV=test
+      - CI=true
+    volumes:
+      - .:/app:ro
+      - test_artifacts:/app/test-results
+      - node_modules_cache:/app/node_modules
+    command: >
+      sh -c "
+        npm ci &&
+        npm run test:ci &&
+        npm run test:coverage
+      "
+    networks:
+      - test-network
+
+  # E2E Tests
+  e2e-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: agi-eval-e2e-test
+    environment:
+      - NODE_ENV=test
+      - API_BASE_URL=http://api-test:8000
+      - DASHBOARD_BASE_URL=http://dashboard-test:8080
+      - PLAYWRIGHT_BROWSERS_PATH=/app/playwright-browsers
+    volumes:
+      - ./tests/e2e:/app/tests/e2e:ro
+      - test_artifacts:/app/test-results
+      - playwright_cache:/app/playwright-browsers
+    command: >
+      sh -c "
+        npx playwright install &&
+        npx playwright test 
+          --reporter=html 
+          --output-dir=/app/test-results/e2e
+      "
+    depends_on:
+      - api-test
+      - dashboard-test
+    networks:
+      - test-network
+
+  # Security Tests
+  security-test:
+    image: python:3.11-slim
+    container_name: agi-eval-security-test
+    working_dir: /app
+    volumes:
+      - .:/app:ro
+      - test_artifacts:/app/test-results
+    command: >
+      sh -c "
+        pip install safety bandit semgrep &&
+        echo 'Running safety check...' &&
+        safety check --json --output /app/test-results/safety-report.json || true &&
+        echo 'Running bandit security scan...' &&
+        bandit -r src/ -f json -o /app/test-results/bandit-report.json || true &&
+        echo 'Running semgrep security scan...' &&
+        semgrep --config=auto --json --output=/app/test-results/semgrep-report.json src/ || true &&
+        echo 'Security scans completed!'
+      "
+    networks:
+      - test-network
+
+  # Performance Tests
+  performance-test:
+    image: grafana/k6:latest
+    container_name: agi-eval-performance-test
+    environment:
+      - API_BASE_URL=http://api-test:8000
+    volumes:
+      - ./performance:/scripts:ro
+      - test_artifacts:/app/test-results
+    command: >
+      sh -c "
+        k6 run 
+          --out json=/app/test-results/k6-results.json
+          --summary-export=/app/test-results/k6-summary.json
+          /scripts/k6/load-test.js
+      "
+    depends_on:
+      - api-test
+    networks:
+      - test-network
+
+  # Test Results Aggregator
+  test-aggregator:
+    image: alpine:latest
+    container_name: agi-eval-test-aggregator
+    volumes:
+      - test_artifacts:/test-results
+    command: >
+      sh -c "
+        echo 'Aggregating test results...' &&
+        find /test-results -name '*.xml' -o -name '*.json' | head -20 &&
+        echo 'Test execution completed. Results available in test-results volume.'
+      "
+    depends_on:
+      - api-test
+      - dashboard-test
+      - e2e-test
+      - security-test
+      - performance-test
+    networks:
+      - test-network
+
+volumes:
+  postgres_test_data:
+    driver: local
+  redis_test_data:
+    driver: local
+  test_artifacts:
+    driver: local
+  node_modules_cache:
+    driver: local
+  playwright_cache:
+    driver: local
+
+networks:
+  test-network:
+    driver: bridge

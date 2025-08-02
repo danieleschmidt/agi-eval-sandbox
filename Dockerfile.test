@@ -1,0 +1,47 @@
+# Dockerfile for testing environment
+FROM node:18-alpine as test-base
+
+# Install system dependencies for testing
+RUN apk add --no-cache \
+    python3 \
+    py3-pip \
+    chromium \
+    chromium-chromedriver \
+    firefox \
+    bash \
+    curl \
+    git
+
+# Set environment variables for Playwright
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+ENV CHROMIUM_PATH=/usr/bin/chromium-browser
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+COPY tsconfig.json ./
+COPY jest.config.js ./
+COPY playwright.config.ts ./
+
+# Install Node.js dependencies
+RUN npm ci
+
+# Install Playwright
+RUN npx playwright install --with-deps
+
+# Copy source code
+COPY . .
+
+# Create test user
+RUN addgroup -g 1001 -S testuser && \
+    adduser -S testuser -u 1001 -G testuser
+
+# Set proper permissions
+RUN chown -R testuser:testuser /app
+USER testuser
+
+# Default command
+CMD ["npm", "run", "test"]
