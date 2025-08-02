@@ -1,7 +1,7 @@
 {
   "project": "agi-eval-sandbox",
-  "version": "0.1.0",
-  "last_updated": "2024-01-15T10:00:00Z",
+  "version": "1.0.0",
+  "last_updated": "2025-08-02T00:00:00Z",
   "sdlc_metrics": {
     "completeness_score": 95,
     "automation_coverage": 98,
