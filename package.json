@@ -59,13 +59,22 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.40.0",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
     "concurrently": "^8.2.2",
+    "eslint": "^8.56.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-import": "^2.29.1",
+    "eslint-plugin-react": "^7.33.2",
+    "eslint-plugin-react-hooks": "^4.6.0",
     "husky": "^8.0.3",
     "lint-staged": "^15.2.0",
+    "prettier": "^3.1.1",
     "semantic-release": "^22.0.0",
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/git": "^10.0.1",
-    "@semantic-release/github": "^9.2.0"
+    "@semantic-release/github": "^9.2.0",
+    "typescript": "^5.3.3"
   },
   "husky": {
     "hooks": {
@@ -79,7 +88,11 @@
       "isort",
       "flake8"
     ],
-    "*.{js,ts,tsx,json,css,md}": [
+    "*.{js,ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,css,md,yaml,yml}": [
       "prettier --write"
     ]
   },
