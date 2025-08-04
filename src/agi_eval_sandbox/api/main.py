@@ -1,0 +1,476 @@
+"""Main FastAPI application."""
+
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from contextlib import asynccontextmanager
+from typing import Dict, List, Optional, Any
+import asyncio
+import logging
+import uuid
+from datetime import datetime
+
+from ..core import EvalSuite, Model
+from ..config import settings
+from .models import (
+    EvaluationRequest,
+    EvaluationResponse,
+    ModelSpec,
+    BenchmarkInfo,
+    LeaderboardEntry,
+    JobStatus,
+    JobResponse
+)
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Global state
+eval_suite = EvalSuite()
+active_jobs: Dict[str, Dict[str, Any]] = {}
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan handler."""
+    logger.info("🚀 Starting AGI Evaluation Sandbox API")
+    yield
+    logger.info("🛑 Shutting down AGI Evaluation Sandbox API")
+
+
+# Create FastAPI app
+app = FastAPI(
+    title="AGI Evaluation Sandbox API",
+    description="Comprehensive evaluation platform for large language models",
+    version="0.1.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    lifespan=lifespan
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Configure appropriately for production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/")
+async def root():
+    """Root endpoint with API information."""
+    return {
+        "message": "AGI Evaluation Sandbox API",
+        "version": "0.1.0",
+        "docs": "/docs",
+        "status": "running",
+        "timestamp": datetime.now().isoformat()
+    }
+
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint."""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "active_jobs": len(active_jobs)
+    }
+
+
+@app.get("/benchmarks", response_model=List[BenchmarkInfo])
+async def list_benchmarks():
+    """List all available benchmarks."""
+    benchmarks = []
+    for name in eval_suite.list_benchmarks():
+        benchmark = eval_suite.get_benchmark(name)
+        if benchmark:
+            questions = benchmark.get_questions()
+            
+            # Get categories
+            categories = list(set(q.category for q in questions if q.category))
+            
+            benchmarks.append(BenchmarkInfo(
+                name=name,
+                version=benchmark.version,
+                total_questions=len(questions),
+                categories=categories,
+                description=f"{name.upper()} benchmark with {len(questions)} questions"
+            ))
+    
+    return benchmarks
+
+
+@app.get("/benchmarks/{benchmark_name}")
+async def get_benchmark_details(benchmark_name: str):
+    """Get detailed information about a specific benchmark."""
+    benchmark = eval_suite.get_benchmark(benchmark_name)
+    if not benchmark:
+        raise HTTPException(status_code=404, detail=f"Benchmark '{benchmark_name}' not found")
+    
+    questions = benchmark.get_questions()
+    
+    # Analyze question types and categories
+    question_types = {}
+    categories = {}
+    difficulties = {}
+    
+    for question in questions:
+        # Count question types
+        q_type = question.question_type.value
+        question_types[q_type] = question_types.get(q_type, 0) + 1
+        
+        # Count categories
+        if question.category:
+            categories[question.category] = categories.get(question.category, 0) + 1
+        
+        # Count difficulties
+        if question.difficulty:
+            difficulties[question.difficulty] = difficulties.get(question.difficulty, 0) + 1
+    
+    # Sample questions
+    sample_questions = questions[:5]
+    samples = []
+    for q in sample_questions:
+        sample = {
+            "id": q.id,
+            "prompt": q.prompt[:200] + "..." if len(q.prompt) > 200 else q.prompt,
+            "type": q.question_type.value,
+            "category": q.category,
+            "difficulty": q.difficulty
+        }
+        if q.choices:
+            sample["choices"] = q.choices
+        samples.append(sample)
+    
+    return {
+        "name": benchmark_name,
+        "version": benchmark.version,
+        "total_questions": len(questions),
+        "question_types": question_types,
+        "categories": categories,
+        "difficulties": difficulties,
+        "sample_questions": samples
+    }
+
+
+@app.post("/evaluate", response_model=JobResponse)
+async def start_evaluation(
+    request: EvaluationRequest,
+    background_tasks: BackgroundTasks
+):
+    """Start an evaluation job."""
+    try:
+        # Create job ID
+        job_id = str(uuid.uuid4())
+        
+        # Create model instance
+        model = Model(
+            provider=request.model.provider,
+            name=request.model.name,
+            api_key=request.model.api_key,
+            temperature=request.config.temperature,
+            max_tokens=request.config.max_tokens
+        )
+        
+        # Initialize job tracking
+        active_jobs[job_id] = {
+            "status": "pending",
+            "progress": 0.0,
+            "created_at": datetime.now(),
+            "model": request.model.dict(),
+            "benchmarks": request.benchmarks,
+            "config": request.config.dict(),
+            "results": None,
+            "error": None
+        }
+        
+        # Start evaluation in background
+        background_tasks.add_task(
+            run_evaluation_job,
+            job_id,
+            model,
+            request.benchmarks,
+            request.config.dict()
+        )
+        
+        return JobResponse(
+            job_id=job_id,
+            status="pending",
+            message="Evaluation job started"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to start evaluation: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+async def run_evaluation_job(
+    job_id: str,
+    model: Model,
+    benchmarks: List[str],
+    config: Dict[str, Any]
+):
+    """Run evaluation job in background."""
+    try:
+        active_jobs[job_id]["status"] = "running"
+        active_jobs[job_id]["progress"] = 0.1
+        
+        # Run evaluation
+        benchmark_list = benchmarks if benchmarks != ["all"] else "all"
+        results = await eval_suite.evaluate(
+            model=model,
+            benchmarks=benchmark_list,
+            save_results=False,
+            **config
+        )
+        
+        # Update job with results
+        active_jobs[job_id]["status"] = "completed"
+        active_jobs[job_id]["progress"] = 1.0
+        active_jobs[job_id]["results"] = results.summary()
+        active_jobs[job_id]["completed_at"] = datetime.now()
+        
+        logger.info(f"Evaluation job {job_id} completed successfully")
+        
+    except Exception as e:
+        logger.error(f"Evaluation job {job_id} failed: {e}")
+        active_jobs[job_id]["status"] = "failed"
+        active_jobs[job_id]["error"] = str(e)
+
+
+@app.get("/jobs/{job_id}", response_model=JobStatus)
+async def get_job_status(job_id: str):
+    """Get status of an evaluation job."""
+    if job_id not in active_jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    job = active_jobs[job_id]
+    return JobStatus(
+        job_id=job_id,
+        status=job["status"],
+        progress=job["progress"],
+        created_at=job["created_at"],
+        completed_at=job.get("completed_at"),
+        error=job.get("error")
+    )
+
+
+@app.get("/jobs/{job_id}/results")
+async def get_job_results(job_id: str):
+    """Get results of a completed evaluation job."""
+    if job_id not in active_jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    job = active_jobs[job_id]
+    
+    if job["status"] != "completed":
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Job is not completed (status: {job['status']})"
+        )
+    
+    return {
+        "job_id": job_id,
+        "results": job["results"],
+        "model": job["model"],
+        "benchmarks": job["benchmarks"],
+        "config": job["config"]
+    }
+
+
+@app.get("/jobs")
+async def list_jobs():
+    """List all evaluation jobs."""
+    jobs = []
+    for job_id, job_data in active_jobs.items():
+        jobs.append({
+            "job_id": job_id,
+            "status": job_data["status"],
+            "created_at": job_data["created_at"].isoformat(),
+            "model": job_data["model"]["name"],
+            "provider": job_data["model"]["provider"],
+            "benchmarks": job_data["benchmarks"]
+        })
+    
+    # Sort by creation time (newest first)
+    jobs.sort(key=lambda x: x["created_at"], reverse=True)
+    return {"jobs": jobs}
+
+
+@app.delete("/jobs/{job_id}")
+async def cancel_job(job_id: str):
+    """Cancel or delete an evaluation job."""
+    if job_id not in active_jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    job = active_jobs[job_id]
+    
+    if job["status"] == "running":
+        # In a real implementation, you would cancel the background task
+        job["status"] = "cancelled"
+        return {"message": "Job cancelled"}
+    else:
+        # Delete completed/failed jobs
+        del active_jobs[job_id]
+        return {"message": "Job deleted"}
+
+
+@app.get("/leaderboard", response_model=List[LeaderboardEntry])
+async def get_leaderboard(
+    benchmark: Optional[str] = None,
+    metric: str = "average_score",
+    limit: int = 50
+):
+    """Get leaderboard of model performance."""
+    try:
+        leaderboard_data = eval_suite.get_leaderboard(
+            benchmark=benchmark,
+            metric=metric
+        )
+        
+        entries = []
+        for i, record in enumerate(leaderboard_data[:limit]):
+            entries.append(LeaderboardEntry(
+                rank=i + 1,
+                model_name=record["model_name"],
+                model_provider=record["model_provider"],
+                benchmark=record["benchmark"],
+                average_score=record["average_score"],
+                pass_rate=record["pass_rate"],
+                total_questions=record["total_questions"],
+                timestamp=record["timestamp"]
+            ))
+        
+        return entries
+        
+    except Exception as e:
+        logger.error(f"Failed to get leaderboard: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve leaderboard")
+
+
+@app.post("/compare")
+async def compare_models(
+    request: Dict[str, Any],
+    background_tasks: BackgroundTasks
+):
+    """Compare multiple models on the same benchmarks."""
+    try:
+        models_config = request.get("models", [])
+        benchmarks = request.get("benchmarks", ["all"])
+        config = request.get("config", {})
+        
+        if len(models_config) < 2:
+            raise HTTPException(
+                status_code=400,
+                detail="At least 2 models required for comparison"
+            )
+        
+        # Create job ID for comparison
+        job_id = str(uuid.uuid4())
+        
+        # Create model instances
+        models = []
+        for model_config in models_config:
+            model = Model(
+                provider=model_config["provider"],
+                name=model_config["name"],
+                api_key=model_config.get("api_key")
+            )
+            models.append(model)
+        
+        # Initialize comparison job
+        active_jobs[job_id] = {
+            "status": "pending",
+            "progress": 0.0,
+            "created_at": datetime.now(),
+            "type": "comparison",
+            "models": models_config,
+            "benchmarks": benchmarks,
+            "config": config,
+            "results": None,
+            "error": None
+        }
+        
+        # Start comparison in background
+        background_tasks.add_task(
+            run_comparison_job,
+            job_id,
+            models,
+            benchmarks,
+            config
+        )
+        
+        return JobResponse(
+            job_id=job_id,
+            status="pending",
+            message="Model comparison started"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to start comparison: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+async def run_comparison_job(
+    job_id: str,
+    models: List[Model],
+    benchmarks: List[str],
+    config: Dict[str, Any]
+):
+    """Run model comparison in background."""
+    try:
+        active_jobs[job_id]["status"] = "running"
+        active_jobs[job_id]["progress"] = 0.1
+        
+        # Run comparison
+        benchmark_list = benchmarks if benchmarks != ["all"] else "all"
+        comparison_results = eval_suite.compare_models(
+            models=models,
+            benchmarks=benchmark_list,
+            **config
+        )
+        
+        # Format results
+        formatted_results = {}
+        for model_name, results in comparison_results.items():
+            formatted_results[model_name] = results.summary()
+        
+        # Update job with results
+        active_jobs[job_id]["status"] = "completed"
+        active_jobs[job_id]["progress"] = 1.0
+        active_jobs[job_id]["results"] = formatted_results
+        active_jobs[job_id]["completed_at"] = datetime.now()
+        
+        logger.info(f"Comparison job {job_id} completed successfully")
+        
+    except Exception as e:
+        logger.error(f"Comparison job {job_id} failed: {e}")
+        active_jobs[job_id]["status"] = "failed"
+        active_jobs[job_id]["error"] = str(e)
+
+
+@app.get("/stats")
+async def get_stats():
+    """Get API usage statistics."""
+    total_jobs = len(active_jobs)
+    completed_jobs = sum(1 for job in active_jobs.values() if job["status"] == "completed")
+    running_jobs = sum(1 for job in active_jobs.values() if job["status"] == "running")
+    failed_jobs = sum(1 for job in active_jobs.values() if job["status"] == "failed")
+    
+    return {
+        "total_jobs": total_jobs,
+        "completed_jobs": completed_jobs,
+        "running_jobs": running_jobs,
+        "failed_jobs": failed_jobs,
+        "available_benchmarks": len(eval_suite.list_benchmarks()),
+        "uptime": datetime.now().isoformat()
+    }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8080)

@@ -1,5 +1,9 @@
 """Configuration module for AGI Evaluation Sandbox."""
 
-from .settings import settings
+try:
+    from .settings import settings
+except ImportError:
+    # Fallback to simple settings without pydantic
+    from .simple_settings import settings
 
 __all__ = ["settings"]

@@ -1,0 +1,88 @@
+.App {
+  min-height: 100vh;
+  background-color: #fafafa;
+}
+
+.metric-card {
+  text-align: center;
+  padding: 20px;
+}
+
+.metric-value {
+  font-size: 2.5rem;
+  font-weight: bold;
+  color: #1976d2;
+}
+
+.metric-label {
+  font-size: 0.875rem;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.chart-container {
+  width: 100%;
+  height: 400px;
+  margin: 20px 0;
+}
+
+.benchmark-card {
+  margin-bottom: 16px;
+  transition: transform 0.2s;
+}
+
+.benchmark-card:hover {
+  transform: translateY(-2px);
+}
+
+.status-chip {
+  text-transform: capitalize;
+}
+
+.loading-spinner {
+  display: flex;
+  justify-content: center;
+  padding: 40px;
+}
+
+.error-message {
+  text-align: center;
+  padding: 40px;
+  color: #f44336;
+}
+
+.page-header {
+  margin-bottom: 32px;
+  text-align: left;
+}
+
+.form-section {
+  margin-bottom: 24px;
+}
+
+.results-section {
+  margin-top: 32px;
+}
+
+.comparison-table {
+  margin-top: 24px;
+}
+
+.rank-badge {
+  font-weight: bold;
+  color: #1976d2;
+}
+
+.score-bar {
+  height: 8px;
+  background-color: #e0e0e0;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.score-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #f44336 0%, #ff9800 50%, #4caf50 100%);
+  transition: width 0.3s ease;
+}
