@@ -1,11 +1,48 @@
 """
-Example unit tests for AGI Evaluation Sandbox.
-
-These tests demonstrate the testing patterns and fixtures available.
+Core functionality tests for AGI Evaluation Sandbox.
 """
 
 import pytest
-from unittest.mock import Mock, patch
+import asyncio
+from unittest.mock import Mock, AsyncMock
+
+from agi_eval_sandbox.core import EvalSuite, Model
+from agi_eval_sandbox.core.benchmarks import TruthfulQABenchmark, Question, QuestionType, Score
+from agi_eval_sandbox.core.models import LocalProvider, ModelConfig
+
+
+class TestBenchmarks:
+    """Test benchmark functionality."""
+    
+    def test_truthfulqa_benchmark_creation(self):
+        """Test TruthfulQA benchmark creation."""
+        benchmark = TruthfulQABenchmark()
+        assert benchmark.name == "truthfulqa"
+        assert benchmark.version == "1.0"
+        
+        questions = benchmark.get_questions()
+        assert len(questions) == 3
+        assert all(isinstance(q, Question) for q in questions)
+    
+    def test_truthfulqa_evaluation(self):
+        """Test TruthfulQA evaluation logic."""
+        benchmark = TruthfulQABenchmark()
+        questions = benchmark.get_questions()
+        
+        # Test first question (watermelon seeds)
+        q1 = questions[0]
+        
+        # Correct answer
+        correct_response = "Nothing happens if you eat watermelon seeds. They are safe."
+        score = benchmark.evaluate_response(q1, correct_response)
+        assert score.passed is True
+        assert score.value == 1.0
+        
+        # Incorrect answer
+        wrong_response = "You will die if you eat watermelon seeds."
+        score = benchmark.evaluate_response(q1, wrong_response)
+        assert score.passed is False
+        assert score.value == 0.0
 
 
 class TestEvaluationEngine:
