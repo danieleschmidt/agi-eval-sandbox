@@ -23,6 +23,11 @@ import {
   DialogContent,
   DialogActions,
   Grid,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  TextField,
 } from '@mui/material';
 import {
   Refresh,
@@ -30,8 +35,10 @@ import {
   Stop,
   Visibility,
   GetApp,
+  FilterList,
 } from '@mui/icons-material';
 import { format } from 'date-fns';
+import { useDispatch } from 'react-redux';
 import {
   useGetJobsQuery,
   useGetJobStatusQuery,
@@ -39,13 +46,22 @@ import {
   useCancelJobMutation,
   JobListItem,
 } from '../store/apiSlice';
+import { addNotification } from '../store/uiSlice';
 
 const JobsPage: React.FC = () => {
+  const dispatch = useDispatch();
   const [selectedJob, setSelectedJob] = React.useState<string | null>(null);
   const [resultsDialog, setResultsDialog] = React.useState(false);
+  const [statusFilter, setStatusFilter] = React.useState<string>('all');
+  const [providerFilter, setProviderFilter] = React.useState<string>('all');
+  const [searchTerm, setSearchTerm] = React.useState<string>('');
+  const [autoRefresh, setAutoRefresh] = React.useState<boolean>(true);
   
-  const { data: jobsData, isLoading, error, refetch } = useGetJobsQuery();
-  const [cancelJob] = useCancelJobMutation();
+  const { data: jobsData, isLoading, error, refetch } = useGetJobsQuery(
+    undefined,
+    { pollingInterval: autoRefresh ? 5000 : 0 }
+  );
+  const [cancelJob, { isLoading: cancellingJob }] = useCancelJobMutation();
   
   const { data: jobResults } = useGetJobResultsQuery(
     selectedJob || '',
@@ -69,11 +85,56 @@ const JobsPage: React.FC = () => {
     }
   };
 
-  const handleCancelJob = async (jobId: string) => {
+  // Filter jobs based on current filters
+  const filteredJobs = React.useMemo(() => {
+    let filtered = jobsData?.jobs || [];
+
+    // Filter by status
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter(job => job.status === statusFilter);
+    }
+
+    // Filter by provider
+    if (providerFilter !== 'all') {
+      filtered = filtered.filter(job => job.provider === providerFilter);
+    }
+
+    // Filter by search term
+    if (searchTerm.trim()) {
+      const term = searchTerm.toLowerCase();
+      filtered = filtered.filter(job => 
+        job.model.toLowerCase().includes(term) ||
+        job.job_id.toLowerCase().includes(term) ||
+        job.benchmarks.some(b => b.toLowerCase().includes(term))
+      );
+    }
+
+    return filtered;
+  }, [jobsData?.jobs, statusFilter, providerFilter, searchTerm]);
+
+  // Get unique providers for filter
+  const uniqueProviders = React.useMemo(() => {
+    const providers = new Set(jobsData?.jobs.map(job => job.provider) || []);
+    return Array.from(providers);
+  }, [jobsData?.jobs]);
+
+  const handleCancelJob = async (jobId: string, jobStatus: string) => {
     try {
       await cancelJob(jobId).unwrap();
+      
+      const message = jobStatus === 'running' ? 'Job cancelled successfully' : 'Job deleted successfully';
+      dispatch(addNotification({
+        message,
+        type: 'success',
+      }));
+
       refetch();
-    } catch (error) {
+    } catch (error: any) {
+      const errorMessage = error.data?.detail || error.message || 'Failed to cancel/delete job';
+      dispatch(addNotification({
+        message: errorMessage,
+        type: 'error',
+      }));
       console.error('Failed to cancel job:', error);
     }
   };
@@ -104,24 +165,92 @@ const JobsPage: React.FC = () => {
     );
   }
 
-  const jobs = jobsData?.jobs || [];
-
   return (
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h4" className="page-header">
           Evaluation Jobs
         </Typography>
-        <Button
-          variant="outlined"
-          startIcon={<Refresh />}
-          onClick={() => refetch()}
-        >
-          Refresh
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+          <Button
+            variant="outlined"
+            startIcon={<Refresh />}
+            onClick={() => refetch()}
+            disabled={isLoading}
+          >
+            {isLoading ? 'Refreshing...' : 'Refresh'}
+          </Button>
+          <Button
+            variant={autoRefresh ? 'contained' : 'outlined'}
+            size="small"
+            onClick={() => setAutoRefresh(!autoRefresh)}
+          >
+            Auto-refresh
+          </Button>
+        </Box>
       </Box>
 
-      {jobs.length > 0 ? (
+      {/* Filters */}
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <FilterList /> Filters & Search
+          </Typography>
+          <Grid container spacing={2}>
+            <Grid item xs={12} sm={6} md={3}>
+              <TextField
+                fullWidth
+                size="small"
+                label="Search jobs..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Job ID, model, benchmark..."
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Status</InputLabel>
+                <Select
+                  value={statusFilter}
+                  label="Status"
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                >
+                  <MenuItem value="all">All Statuses</MenuItem>
+                  <MenuItem value="pending">Pending</MenuItem>
+                  <MenuItem value="running">Running</MenuItem>
+                  <MenuItem value="completed">Completed</MenuItem>
+                  <MenuItem value="failed">Failed</MenuItem>
+                  <MenuItem value="cancelled">Cancelled</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Provider</InputLabel>
+                <Select
+                  value={providerFilter}
+                  label="Provider"
+                  onChange={(e) => setProviderFilter(e.target.value)}
+                >
+                  <MenuItem value="all">All Providers</MenuItem>
+                  {uniqueProviders.map(provider => (
+                    <MenuItem key={provider} value={provider}>{provider}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <Box sx={{ display: 'flex', alignItems: 'center', height: '40px' }}>
+                <Typography variant="body2" color="text.secondary">
+                  {filteredJobs.length} of {jobsData?.jobs.length || 0} jobs
+                </Typography>
+              </Box>
+            </Grid>
+          </Grid>
+        </CardContent>
+      </Card>
+
+      {filteredJobs.length > 0 ? (
         <Card>
           <CardContent>
             <TableContainer component={Paper} elevation={0}>
@@ -138,7 +267,7 @@ const JobsPage: React.FC = () => {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {jobs.map((job: JobListItem) => (
+                  {filteredJobs.map((job: JobListItem) => (
                     <TableRow key={job.job_id} hover>
                       <TableCell>
                         <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
@@ -226,7 +355,8 @@ const JobsPage: React.FC = () => {
                               <IconButton 
                                 size="small"
                                 color="error"
-                                onClick={() => handleCancelJob(job.job_id)}
+                                onClick={() => handleCancelJob(job.job_id, job.status)}
+                                disabled={cancellingJob}
                               >
                                 <Stop />
                               </IconButton>
@@ -238,7 +368,8 @@ const JobsPage: React.FC = () => {
                               <IconButton 
                                 size="small"
                                 color="error"
-                                onClick={() => handleCancelJob(job.job_id)}
+                                onClick={() => handleCancelJob(job.job_id, job.status)}
+                                disabled={cancellingJob}
                               >
                                 <Delete />
                               </IconButton>
@@ -255,7 +386,10 @@ const JobsPage: React.FC = () => {
         </Card>
       ) : (
         <Alert severity="info">
-          No evaluation jobs found. Start an evaluation to see jobs here.
+          {jobsData?.jobs.length === 0 
+            ? "No evaluation jobs found. Start an evaluation to see jobs here."
+            : "No jobs match the current filters. Try adjusting your search criteria."
+          }
         </Alert>
       )}
 

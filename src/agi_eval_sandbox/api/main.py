@@ -19,7 +19,11 @@ from .models import (
     BenchmarkInfo,
     LeaderboardEntry,
     JobStatus,
-    JobResponse
+    JobResponse,
+    ComparisonRequest,
+    StatsResponse,
+    CustomBenchmarkRequest,
+    CustomBenchmarkResponse
 )
 
 # Configure logging
@@ -29,6 +33,7 @@ logger = logging.getLogger(__name__)
 # Global state
 eval_suite = EvalSuite()
 active_jobs: Dict[str, Dict[str, Any]] = {}
+custom_benchmarks: Dict[str, Dict[str, Any]] = {}
 
 
 @asynccontextmanager
@@ -81,9 +86,28 @@ async def health_check():
     }
 
 
-@app.get("/benchmarks", response_model=List[BenchmarkInfo])
+@app.get("/api/v1")
+async def api_v1_root():
+    """API v1 root endpoint with information."""
+    return {
+        "message": "AGI Evaluation Sandbox API v1",
+        "version": "0.1.0",
+        "docs": "/docs",
+        "endpoints": {
+            "evaluate": "/api/v1/evaluate",
+            "jobs": "/api/v1/jobs",
+            "leaderboard": "/api/v1/leaderboard",
+            "benchmarks": "/api/v1/benchmarks",
+            "custom_benchmarks": "/api/v1/benchmarks/custom",
+            "stats": "/api/v1/stats"
+        }
+    }
+
+
+# API v1 endpoints
+@app.get("/api/v1/benchmarks", response_model=List[BenchmarkInfo])
 async def list_benchmarks():
-    """List all available benchmarks."""
+    """List available benchmarks."""
     benchmarks = []
     for name in eval_suite.list_benchmarks():
         benchmark = eval_suite.get_benchmark(name)
@@ -104,7 +128,7 @@ async def list_benchmarks():
     return benchmarks
 
 
-@app.get("/benchmarks/{benchmark_name}")
+@app.get("/api/v1/benchmarks/{benchmark_name}")
 async def get_benchmark_details(benchmark_name: str):
     """Get detailed information about a specific benchmark."""
     benchmark = eval_suite.get_benchmark(benchmark_name)
@@ -157,12 +181,98 @@ async def get_benchmark_details(benchmark_name: str):
     }
 
 
-@app.post("/evaluate", response_model=JobResponse)
+@app.post("/api/v1/benchmarks/custom", response_model=CustomBenchmarkResponse)
+async def create_custom_benchmark(request: CustomBenchmarkRequest):
+    """Create custom benchmark."""
+    try:
+        # Generate unique benchmark ID
+        benchmark_id = f"custom_{str(uuid.uuid4())}"
+        
+        # Validate questions format
+        for i, question in enumerate(request.questions):
+            if "prompt" not in question:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Question {i+1} missing required 'prompt' field"
+                )
+        
+        # Store custom benchmark
+        custom_benchmarks[benchmark_id] = {
+            "id": benchmark_id,
+            "name": request.name,
+            "description": request.description,
+            "questions": request.questions,
+            "category": request.category or "custom",
+            "tags": request.tags,
+            "created_at": datetime.now(),
+            "total_questions": len(request.questions)
+        }
+        
+        logger.info(f"Created custom benchmark '{request.name}' with ID {benchmark_id}")
+        
+        return CustomBenchmarkResponse(
+            benchmark_id=benchmark_id,
+            name=request.name,
+            status="created",
+            message="Custom benchmark created successfully",
+            total_questions=len(request.questions)
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to create custom benchmark: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/v1/benchmarks/custom")
+async def list_custom_benchmarks():
+    """List all custom benchmarks."""
+    benchmarks = []
+    for benchmark_id, benchmark_data in custom_benchmarks.items():
+        benchmarks.append({
+            "benchmark_id": benchmark_id,
+            "name": benchmark_data["name"],
+            "description": benchmark_data["description"],
+            "total_questions": benchmark_data["total_questions"],
+            "category": benchmark_data["category"],
+            "tags": benchmark_data["tags"],
+            "created_at": benchmark_data["created_at"].isoformat()
+        })
+    
+    # Sort by creation time (newest first)
+    benchmarks.sort(key=lambda x: x["created_at"], reverse=True)
+    return {"custom_benchmarks": benchmarks}
+
+
+@app.get("/api/v1/benchmarks/custom/{benchmark_id}")
+async def get_custom_benchmark(benchmark_id: str):
+    """Get details of a specific custom benchmark."""
+    if benchmark_id not in custom_benchmarks:
+        raise HTTPException(status_code=404, detail="Custom benchmark not found")
+    
+    return custom_benchmarks[benchmark_id]
+
+
+@app.delete("/api/v1/benchmarks/custom/{benchmark_id}")
+async def delete_custom_benchmark(benchmark_id: str):
+    """Delete a custom benchmark."""
+    if benchmark_id not in custom_benchmarks:
+        raise HTTPException(status_code=404, detail="Custom benchmark not found")
+    
+    benchmark_name = custom_benchmarks[benchmark_id]["name"]
+    del custom_benchmarks[benchmark_id]
+    
+    return {
+        "message": f"Custom benchmark '{benchmark_name}' deleted successfully",
+        "benchmark_id": benchmark_id
+    }
+
+
+@app.post("/api/v1/evaluate", response_model=JobResponse)
 async def start_evaluation(
     request: EvaluationRequest,
     background_tasks: BackgroundTasks
 ):
-    """Start an evaluation job."""
+    """Submit evaluation job."""
     try:
         # Create job ID
         job_id = str(uuid.uuid4())
@@ -242,9 +352,9 @@ async def run_evaluation_job(
         active_jobs[job_id]["error"] = str(e)
 
 
-@app.get("/jobs/{job_id}", response_model=JobStatus)
+@app.get("/api/v1/jobs/{job_id}", response_model=JobStatus)
 async def get_job_status(job_id: str):
-    """Get status of an evaluation job."""
+    """Get job status."""
     if job_id not in active_jobs:
         raise HTTPException(status_code=404, detail="Job not found")
     
@@ -259,7 +369,7 @@ async def get_job_status(job_id: str):
     )
 
 
-@app.get("/jobs/{job_id}/results")
+@app.get("/api/v1/jobs/{job_id}/results")
 async def get_job_results(job_id: str):
     """Get results of a completed evaluation job."""
     if job_id not in active_jobs:
@@ -282,7 +392,7 @@ async def get_job_results(job_id: str):
     }
 
 
-@app.get("/jobs")
+@app.get("/api/v1/jobs")
 async def list_jobs():
     """List all evaluation jobs."""
     jobs = []
@@ -301,7 +411,7 @@ async def list_jobs():
     return {"jobs": jobs}
 
 
-@app.delete("/jobs/{job_id}")
+@app.delete("/api/v1/jobs/{job_id}")
 async def cancel_job(job_id: str):
     """Cancel or delete an evaluation job."""
     if job_id not in active_jobs:
@@ -319,13 +429,13 @@ async def cancel_job(job_id: str):
         return {"message": "Job deleted"}
 
 
-@app.get("/leaderboard", response_model=List[LeaderboardEntry])
+@app.get("/api/v1/leaderboard", response_model=List[LeaderboardEntry])
 async def get_leaderboard(
     benchmark: Optional[str] = None,
     metric: str = "average_score",
     limit: int = 50
 ):
-    """Get leaderboard of model performance."""
+    """Get model leaderboard."""
     try:
         leaderboard_data = eval_suite.get_leaderboard(
             benchmark=benchmark,
@@ -352,16 +462,16 @@ async def get_leaderboard(
         raise HTTPException(status_code=500, detail="Failed to retrieve leaderboard")
 
 
-@app.post("/compare")
+@app.post("/api/v1/compare")
 async def compare_models(
-    request: Dict[str, Any],
+    request: ComparisonRequest,
     background_tasks: BackgroundTasks
 ):
     """Compare multiple models on the same benchmarks."""
     try:
-        models_config = request.get("models", [])
-        benchmarks = request.get("benchmarks", ["all"])
-        config = request.get("config", {})
+        models_config = [model.dict() for model in request.models]
+        benchmarks = request.benchmarks
+        config = request.config.dict()
         
         if len(models_config) < 2:
             raise HTTPException(
@@ -453,7 +563,7 @@ async def run_comparison_job(
         active_jobs[job_id]["error"] = str(e)
 
 
-@app.get("/stats")
+@app.get("/api/v1/stats", response_model=StatsResponse)
 async def get_stats():
     """Get API usage statistics."""
     total_jobs = len(active_jobs)
@@ -466,7 +576,7 @@ async def get_stats():
         "completed_jobs": completed_jobs,
         "running_jobs": running_jobs,
         "failed_jobs": failed_jobs,
-        "available_benchmarks": len(eval_suite.list_benchmarks()),
+        "available_benchmarks": len(eval_suite.list_benchmarks()) + len(custom_benchmarks),
         "uptime": datetime.now().isoformat()
     }
 

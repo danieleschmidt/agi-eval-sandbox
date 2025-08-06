@@ -7,13 +7,25 @@ except ImportError:
 
 import asyncio
 import time
-from typing import Dict, List, Any, Optional
+import socket
+import ssl
+import json
+from pathlib import Path
+from typing import Dict, List, Any, Optional, Callable, Awaitable
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 from enum import Enum
+from contextlib import asynccontextmanager
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
+try:
+    import aiohttp
+except ImportError:
+    aiohttp = None
 
 from .exceptions import ResourceError
-from .logging_config import get_logger
+from .logging_config import get_logger, performance_logger
 
 logger = get_logger("health")
 
@@ -47,6 +59,36 @@ class SystemMetrics:
     disk_free_mb: float
     load_average: List[float]
     timestamp: datetime = field(default_factory=datetime.now)
+    network_connections: int = 0
+    network_bytes_sent: int = 0
+    network_bytes_recv: int = 0
+
+
+@dataclass
+class HealthCheckConfig:
+    """Configuration for health checks."""
+    cpu_warning_threshold: float = 70.0
+    cpu_critical_threshold: float = 90.0
+    memory_warning_threshold: float = 80.0
+    memory_critical_threshold: float = 95.0
+    disk_warning_threshold: float = 80.0
+    disk_critical_threshold: float = 95.0
+    check_timeout: float = 30.0
+    enable_network_checks: bool = True
+    enable_database_checks: bool = True
+    enable_external_service_checks: bool = True
+    metrics_retention_hours: int = 24
+
+
+@dataclass
+class ServiceEndpoint:
+    """External service endpoint for health checks."""
+    name: str
+    url: str
+    timeout: float = 10.0
+    expected_status: int = 200
+    check_ssl: bool = True
+    critical: bool = False  # If True, failure makes overall status critical
 
 
 class HealthMonitor:

@@ -22,6 +22,7 @@ import {
   TableSortLabel,
   Avatar,
   Tooltip,
+  TextField,
 } from '@mui/material';
 import { 
   EmojiEvents, 
@@ -36,17 +37,69 @@ const LeaderboardPage: React.FC = () => {
   const [selectedBenchmark, setSelectedBenchmark] = useState<string>('');
   const [sortMetric, setSortMetric] = useState<string>('average_score');
   const [limit, setLimit] = useState<number>(50);
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [minScore, setMinScore] = useState<number>(0);
 
   const { data: benchmarks } = useGetBenchmarksQuery();
   const { 
-    data: leaderboard, 
+    data: leaderboardData, 
     isLoading, 
     error 
   } = useGetLeaderboardQuery({
     benchmark: selectedBenchmark || undefined,
     metric: sortMetric,
-    limit: limit,
+    limit: 100, // Get more data for client-side filtering
   });
+
+  // Client-side filtering and sorting
+  const leaderboard = React.useMemo(() => {
+    if (!leaderboardData) return [];
+
+    let filtered = leaderboardData.filter(entry => {
+      // Filter by minimum score
+      if (entry.average_score < minScore / 100) return false;
+      
+      // Filter by search term
+      if (searchTerm.trim()) {
+        const term = searchTerm.toLowerCase();
+        return (
+          entry.model_name.toLowerCase().includes(term) ||
+          entry.model_provider.toLowerCase().includes(term) ||
+          entry.benchmark.toLowerCase().includes(term)
+        );
+      }
+      
+      return true;
+    });
+
+    // Apply client-side sorting
+    filtered.sort((a, b) => {
+      let aValue: number, bValue: number;
+      
+      switch (sortMetric) {
+        case 'average_score':
+          aValue = a.average_score;
+          bValue = b.average_score;
+          break;
+        case 'pass_rate':
+          aValue = a.pass_rate;
+          bValue = b.pass_rate;
+          break;
+        default:
+          aValue = a.average_score;
+          bValue = b.average_score;
+      }
+      
+      return sortOrder === 'desc' ? bValue - aValue : aValue - bValue;
+    });
+
+    // Apply limit and re-rank
+    return filtered.slice(0, limit).map((entry, index) => ({
+      ...entry,
+      rank: index + 1,
+    }));
+  }, [leaderboardData, minScore, searchTerm, sortMetric, sortOrder, limit]);
 
   const getRankIcon = (rank: number) => {
     switch (rank) {
@@ -106,11 +159,21 @@ const LeaderboardPage: React.FC = () => {
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Typography variant="h6" gutterBottom>
-            Filters
+            Filters & Search
           </Typography>
-          <Grid container spacing={3}>
-            <Grid item xs={12} sm={4}>
-              <FormControl fullWidth>
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={3}>
+              <TextField
+                fullWidth
+                size="small"
+                label="Search models..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Model, provider, benchmark..."
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <FormControl fullWidth size="small">
                 <InputLabel>Benchmark</InputLabel>
                 <Select
                   value={selectedBenchmark}
@@ -126,8 +189,8 @@ const LeaderboardPage: React.FC = () => {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={12} sm={4}>
-              <FormControl fullWidth>
+            <Grid item xs={12} sm={6} md={2}>
+              <FormControl fullWidth size="small">
                 <InputLabel>Sort By</InputLabel>
                 <Select
                   value={sortMetric}
@@ -139,12 +202,36 @@ const LeaderboardPage: React.FC = () => {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={12} sm={4}>
-              <FormControl fullWidth>
-                <InputLabel>Limit</InputLabel>
+            <Grid item xs={12} sm={4} md={1.5}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Order</InputLabel>
+                <Select
+                  value={sortOrder}
+                  label="Order"
+                  onChange={(e) => setSortOrder(e.target.value as 'asc' | 'desc')}
+                >
+                  <MenuItem value="desc">High to Low</MenuItem>
+                  <MenuItem value="asc">Low to High</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={4} md={1.5}>
+              <TextField
+                fullWidth
+                size="small"
+                type="number"
+                label="Min Score %"
+                value={minScore}
+                onChange={(e) => setMinScore(Number(e.target.value))}
+                inputProps={{ min: 0, max: 100, step: 5 }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={4} md={2}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Show</InputLabel>
                 <Select
                   value={limit}
-                  label="Limit"
+                  label="Show"
                   onChange={(e) => setLimit(Number(e.target.value))}
                 >
                   <MenuItem value={10}>Top 10</MenuItem>
@@ -175,12 +262,34 @@ const LeaderboardPage: React.FC = () => {
                     <TableCell>Provider</TableCell>
                     <TableCell>Benchmark</TableCell>
                     <TableCell align="center">
-                      <TableSortLabel active={sortMetric === 'average_score'}>
+                      <TableSortLabel 
+                        active={sortMetric === 'average_score'}
+                        direction={sortMetric === 'average_score' ? sortOrder : 'desc'}
+                        onClick={() => {
+                          if (sortMetric === 'average_score') {
+                            setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc');
+                          } else {
+                            setSortMetric('average_score');
+                            setSortOrder('desc');
+                          }
+                        }}
+                      >
                         Score
                       </TableSortLabel>
                     </TableCell>
                     <TableCell align="center">
-                      <TableSortLabel active={sortMetric === 'pass_rate'}>
+                      <TableSortLabel 
+                        active={sortMetric === 'pass_rate'}
+                        direction={sortMetric === 'pass_rate' ? sortOrder : 'desc'}
+                        onClick={() => {
+                          if (sortMetric === 'pass_rate') {
+                            setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc');
+                          } else {
+                            setSortMetric('pass_rate');
+                            setSortOrder('desc');
+                          }
+                        }}
+                      >
                         Pass Rate
                       </TableSortLabel>
                     </TableCell>

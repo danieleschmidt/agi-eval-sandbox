@@ -2,6 +2,7 @@ import React from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { Container } from '@mui/material';
 import Navbar from './components/Navbar';
+import NotificationSystem from './components/NotificationSystem';
 import HomePage from './pages/HomePage';
 import EvaluationPage from './pages/EvaluationPage';
 import BenchmarksPage from './pages/BenchmarksPage';
@@ -24,6 +25,7 @@ function App() {
           <Route path="/compare" element={<ComparisonPage />} />
         </Routes>
       </Container>
+      <NotificationSystem />
     </div>
   );
 }

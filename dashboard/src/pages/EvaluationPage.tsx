@@ -64,7 +64,7 @@ const EvaluationPage: React.FC = () => {
     api_key: '',
   });
 
-  const { data: benchmarks, isLoading: benchmarksLoading } = useGetBenchmarksQuery();
+  const { data: benchmarks, isLoading: benchmarksLoading, error: benchmarksError } = useGetBenchmarksQuery();
   const [startEvaluation, { isLoading: startingEvaluation }] = useStartEvaluationMutation();
   
   const { data: jobStatus, refetch: refetchJobStatus } = useGetJobStatusQuery(
@@ -113,25 +113,69 @@ const EvaluationPage: React.FC = () => {
     dispatch(setSelectedBenchmarks(value));
   };
 
+  const validateForm = (): boolean => {
+    // Validate model name
+    if (!formModel.name?.trim()) {
+      dispatch(addNotification({
+        message: 'Please enter a model name',
+        type: 'error',
+      }));
+      return false;
+    }
+
+    // Validate API key for non-local providers
+    if (formModel.provider !== 'local' && !formModel.api_key?.trim()) {
+      dispatch(addNotification({
+        message: 'API key is required for this provider',
+        type: 'error',
+      }));
+      return false;
+    }
+
+    // Validate benchmarks selection
+    if (selectedBenchmarks.length === 0) {
+      dispatch(addNotification({
+        message: 'Please select at least one benchmark',
+        type: 'error',
+      }));
+      return false;
+    }
+
+    // Validate configuration
+    if (currentConfig.temperature < 0 || currentConfig.temperature > 2) {
+      dispatch(addNotification({
+        message: 'Temperature must be between 0 and 2',
+        type: 'error',
+      }));
+      return false;
+    }
+
+    if (currentConfig.max_tokens < 1 || currentConfig.max_tokens > 8192) {
+      dispatch(addNotification({
+        message: 'Max tokens must be between 1 and 8192',
+        type: 'error',
+      }));
+      return false;
+    }
+
+    if (currentConfig.num_questions && currentConfig.num_questions < 1) {
+      dispatch(addNotification({
+        message: 'Number of questions must be at least 1',
+        type: 'error',
+      }));
+      return false;
+    }
+
+    return true;
+  };
+
   const handleStartEvaluation = async () => {
+    // Validate form before submitting
+    if (!validateForm()) {
+      return;
+    }
+
     try {
-      // Validate inputs
-      if (!formModel.name) {
-        dispatch(addNotification({
-          message: 'Please enter a model name',
-          type: 'error',
-        }));
-        return;
-      }
-
-      if (formModel.provider !== 'local' && !formModel.api_key) {
-        dispatch(addNotification({
-          message: 'API key is required for this provider',
-          type: 'error',
-        }));
-        return;
-      }
-
       dispatch(setCurrentModel(formModel));
       
       const response = await startEvaluation({
@@ -148,10 +192,12 @@ const EvaluationPage: React.FC = () => {
       }));
 
     } catch (error: any) {
+      const errorMessage = error.data?.detail || error.message || 'Unknown error occurred';
       dispatch(addNotification({
-        message: `Failed to start evaluation: ${error.data?.detail || error.message}`,
+        message: `Failed to start evaluation: ${errorMessage}`,
         type: 'error',  
       }));
+      console.error('Evaluation start error:', error);
     }
   };
 
@@ -235,7 +281,7 @@ const EvaluationPage: React.FC = () => {
                     value={selectedBenchmarks}
                     onChange={handleBenchmarkChange}
                     input={<OutlinedInput label="Benchmarks" />}
-                    disabled={isEvaluating || benchmarksLoading}
+                    disabled={isEvaluating || benchmarksLoading || !!benchmarksError}
                     renderValue={(selected) => (
                       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                         {selected.map((value) => (
@@ -243,6 +289,7 @@ const EvaluationPage: React.FC = () => {
                         ))}
                       </Box>
                     )}
+                    error={!!benchmarksError}
                   >
                     <MenuItem value="all">All Benchmarks</MenuItem>
                     {benchmarks?.map((benchmark) => (
@@ -251,6 +298,11 @@ const EvaluationPage: React.FC = () => {
                       </MenuItem>
                     ))}
                   </Select>
+                  {benchmarksError && (
+                    <Typography variant="caption" color="error" sx={{ mt: 0.5, display: 'block' }}>
+                      Failed to load benchmarks. Please check your connection.
+                    </Typography>
+                  )}
                 </FormControl>
               </Box>
 
