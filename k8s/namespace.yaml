@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agi-eval-sandbox
+  labels:
+    name: agi-eval-sandbox
+    app: agi-eval-sandbox
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: agi-eval-quota
+  namespace: agi-eval-sandbox
+spec:
+  hard:
+    requests.cpu: "20"
+    requests.memory: "40Gi"
+    limits.cpu: "40"
+    limits.memory: "80Gi"
+    persistentvolumeclaims: "10"
+    services: "20"
+    secrets: "20"
+    configmaps: "20"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: agi-eval-limits
+  namespace: agi-eval-sandbox
+spec:
+  limits:
+  - default:
+      cpu: "1000m"
+      memory: "2Gi"
+    defaultRequest:
+      cpu: "500m"
+      memory: "1Gi"
+    type: Container

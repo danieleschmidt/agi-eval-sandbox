@@ -9,6 +9,7 @@ from typing import List, Optional
 import logging
 
 from .core import EvalSuite, Model
+from .core.context_compressor import ContextCompressionEngine, CompressionStrategy, CompressionConfig
 from .config import settings
 
 
@@ -490,6 +491,231 @@ def serve(host: str, port: int, reload: bool):
     except Exception as e:
         click.echo(f"❌ Failed to start server: {e}", err=True)
         sys.exit(1)
+
+
+@main.group()
+def compress():
+    """Context compression commands."""
+    pass
+
+
+@compress.command()
+@click.argument('input_file', type=click.Path(exists=True))
+@click.option('--output', '-o', help='Output file for compressed text')
+@click.option('--strategy', '-s', 
+              type=click.Choice([s.value for s in CompressionStrategy]), 
+              default='extractive_summarization',
+              help='Compression strategy to use')
+@click.option('--target-ratio', '-r', type=float, default=0.5, 
+              help='Target compression ratio (0.1 = 90% reduction)')
+@click.option('--target-length', '-l', type=int, 
+              help='Target length in tokens (overrides ratio)')
+@click.option('--preserve-structure/--no-preserve-structure', default=True,
+              help='Preserve document structure')
+@click.option('--model-name', '-m', default='sentence-transformers/all-MiniLM-L6-v2',
+              help='Model name for semantic analysis')
+@click.option('--semantic-threshold', type=float, default=0.7,
+              help='Semantic similarity threshold for filtering')
+def compress_file(
+    input_file: str,
+    output: Optional[str],
+    strategy: str,
+    target_ratio: float,
+    target_length: Optional[int],
+    preserve_structure: bool,
+    model_name: str,
+    semantic_threshold: float
+):
+    """Compress text from a file using retrieval-free compression."""
+    try:
+        # Read input file
+        with open(input_file, 'r', encoding='utf-8') as f:
+            text = f.read()
+        
+        if not text.strip():
+            click.echo("❌ Input file is empty", err=True)
+            sys.exit(1)
+        
+        # Configure compression
+        config = CompressionConfig(
+            strategy=CompressionStrategy(strategy),
+            target_ratio=target_ratio,
+            semantic_threshold=semantic_threshold,
+            model_name=model_name
+        )
+        
+        # Initialize compression engine
+        click.echo(f"🔧 Initializing {strategy} compressor...")
+        engine = ContextCompressionEngine(config)
+        
+        async def run_compression():
+            await engine.initialize()
+            return await engine.compress(
+                text=text,
+                target_length=target_length,
+                preserve_structure=preserve_structure
+            )
+        
+        # Run compression
+        click.echo(f"🗜️  Compressing text using {strategy}...")
+        compressed_text, metrics = asyncio.run(run_compression())
+        
+        # Display results
+        click.echo("\n" + "="*60)
+        click.echo("📊 COMPRESSION RESULTS")
+        click.echo("="*60)
+        click.echo(f"📝 Original tokens: {metrics.original_tokens:,}")
+        click.echo(f"🗜️  Compressed tokens: {metrics.compressed_tokens:,}")
+        click.echo(f"📉 Compression ratio: {metrics.compression_ratio:.3f} ({(1-metrics.compression_ratio)*100:.1f}% reduction)")
+        click.echo(f"⚡ Processing time: {metrics.processing_time:.2f}s")
+        
+        if metrics.semantic_similarity:
+            click.echo(f"🎯 Semantic similarity: {metrics.semantic_similarity:.3f}")
+        
+        if metrics.information_retention:
+            click.echo(f"📊 Information retention: {metrics.information_retention:.3f}")
+        
+        # Output compressed text
+        if output:
+            with open(output, 'w', encoding='utf-8') as f:
+                f.write(compressed_text)
+            click.echo(f"\n💾 Compressed text saved to: {output}")
+        else:
+            click.echo("\n" + "="*60)
+            click.echo("🗜️  COMPRESSED TEXT")
+            click.echo("="*60)
+            click.echo(compressed_text)
+        
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        if logger.isEnabledFor(logging.DEBUG):
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
+@compress.command()
+@click.argument('text')
+@click.option('--strategy', '-s', 
+              type=click.Choice([s.value for s in CompressionStrategy]), 
+              default='extractive_summarization',
+              help='Compression strategy to use')
+@click.option('--target-ratio', '-r', type=float, default=0.5,
+              help='Target compression ratio')
+@click.option('--target-length', '-l', type=int,
+              help='Target length in tokens')
+def compress_text(
+    text: str,
+    strategy: str,
+    target_ratio: float,
+    target_length: Optional[int]
+):
+    """Compress text directly from command line."""
+    try:
+        config = CompressionConfig(
+            strategy=CompressionStrategy(strategy),
+            target_ratio=target_ratio
+        )
+        
+        engine = ContextCompressionEngine(config)
+        
+        async def run_compression():
+            await engine.initialize()
+            return await engine.compress(
+                text=text,
+                target_length=target_length
+            )
+        
+        compressed_text, metrics = asyncio.run(run_compression())
+        
+        click.echo(f"📝 Original: {metrics.original_tokens} tokens")
+        click.echo(f"🗜️  Compressed: {metrics.compressed_tokens} tokens ({metrics.compression_ratio:.3f} ratio)")
+        click.echo(f"📊 Semantic similarity: {metrics.semantic_similarity:.3f}")
+        click.echo("\n" + compressed_text)
+        
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@compress.command()
+@click.argument('input_file', type=click.Path(exists=True))
+@click.option('--target-length', '-l', type=int, help='Target length for benchmarking')
+def benchmark(input_file: str, target_length: Optional[int]):
+    """Benchmark all compression strategies on a file."""
+    try:
+        # Read input file
+        with open(input_file, 'r', encoding='utf-8') as f:
+            text = f.read()
+        
+        # Run benchmark
+        click.echo("🏁 Benchmarking all compression strategies...")
+        
+        async def run_benchmark():
+            engine = ContextCompressionEngine()
+            await engine.initialize()
+            return await engine.benchmark_strategies(text, target_length)
+        
+        results = asyncio.run(run_benchmark())
+        
+        # Display results
+        click.echo("\n" + "="*80)
+        click.echo("🏆 COMPRESSION STRATEGY BENCHMARK")
+        click.echo("="*80)
+        
+        # Header
+        click.echo(f"{'Strategy':<25} {'Ratio':<8} {'Tokens':<12} {'Similarity':<12} {'Time (s)':<10}")
+        click.echo("-" * 80)
+        
+        # Sort by compression ratio
+        sorted_results = sorted(
+            results.items(), 
+            key=lambda x: x[1][1].compression_ratio
+        )
+        
+        for strategy, (compressed_text, metrics) in sorted_results:
+            click.echo(
+                f"{strategy.value:<25} {metrics.compression_ratio:<8.3f} "
+                f"{metrics.compressed_tokens:<12,} {metrics.semantic_similarity or 0:<12.3f} "
+                f"{metrics.processing_time:<10.2f}"
+            )
+        
+        # Show best strategy
+        best_strategy = min(results.items(), key=lambda x: x[1][1].compression_ratio)
+        click.echo(f"\n🏆 Best compression: {best_strategy[0].value} "
+                   f"({best_strategy[1][1].compression_ratio:.3f} ratio)")
+        
+        # Show best semantic similarity
+        best_similarity = max(
+            results.items(), 
+            key=lambda x: x[1][1].semantic_similarity or 0
+        )
+        click.echo(f"🎯 Best similarity: {best_similarity[0].value} "
+                   f"({best_similarity[1][1].semantic_similarity:.3f} similarity)")
+        
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@compress.command(name='list')
+def list_strategies():
+    """List all available compression strategies."""
+    click.echo("🗜️  Available Compression Strategies:")
+    click.echo("="*40)
+    
+    for strategy in CompressionStrategy:
+        descriptions = {
+            CompressionStrategy.EXTRACTIVE_SUMMARIZATION: "Select most important sentences",
+            CompressionStrategy.SENTENCE_CLUSTERING: "Group similar sentences and select representatives", 
+            CompressionStrategy.SEMANTIC_FILTERING: "Filter by semantic similarity to key topics",
+            CompressionStrategy.TOKEN_PRUNING: "Remove less important tokens",
+            CompressionStrategy.IMPORTANCE_SAMPLING: "Probabilistic sampling based on importance scores",
+            CompressionStrategy.HIERARCHICAL_COMPRESSION: "Multi-level compression approach"
+        }
+        
+        desc = descriptions.get(strategy, "Advanced compression technique")
+        click.echo(f"• {strategy.value:<25} - {desc}")
 
 
 @main.command()

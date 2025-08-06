@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime
 
 from ..core import EvalSuite, Model
+from ..core.context_compressor import ContextCompressionEngine, CompressionStrategy, CompressionConfig
 from ..config import settings
 from .models import (
     EvaluationRequest,
@@ -32,14 +33,19 @@ logger = logging.getLogger(__name__)
 
 # Global state
 eval_suite = EvalSuite()
+compression_engine = ContextCompressionEngine()
 active_jobs: Dict[str, Dict[str, Any]] = {}
 custom_benchmarks: Dict[str, Dict[str, Any]] = {}
+compression_jobs: Dict[str, Dict[str, Any]] = {}
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
     logger.info("🚀 Starting AGI Evaluation Sandbox API")
+    logger.info("🔧 Initializing context compression engine...")
+    await compression_engine.initialize()
+    logger.info("✅ Context compression engine ready")
     yield
     logger.info("🛑 Shutting down AGI Evaluation Sandbox API")
 
@@ -99,6 +105,7 @@ async def api_v1_root():
             "leaderboard": "/api/v1/leaderboard",
             "benchmarks": "/api/v1/benchmarks",
             "custom_benchmarks": "/api/v1/benchmarks/custom",
+            "compression": "/api/v1/compress",
             "stats": "/api/v1/stats"
         }
     }
@@ -563,6 +570,344 @@ async def run_comparison_job(
         active_jobs[job_id]["error"] = str(e)
 
 
+# Context Compression Endpoints
+
+@app.get("/api/v1/compress/strategies")
+async def list_compression_strategies():
+    """List all available compression strategies."""
+    strategies = []
+    for strategy in CompressionStrategy:
+        descriptions = {
+            CompressionStrategy.EXTRACTIVE_SUMMARIZATION: "Select most important sentences based on importance scoring",
+            CompressionStrategy.SENTENCE_CLUSTERING: "Group similar sentences and select representatives from each cluster", 
+            CompressionStrategy.SEMANTIC_FILTERING: "Filter sentences by semantic similarity to key topics",
+            CompressionStrategy.TOKEN_PRUNING: "Remove less important tokens while preserving meaning",
+            CompressionStrategy.IMPORTANCE_SAMPLING: "Probabilistic sampling based on comprehensive importance scores",
+            CompressionStrategy.HIERARCHICAL_COMPRESSION: "Multi-level compression with document structure analysis"
+        }
+        
+        strategies.append({
+            "name": strategy.value,
+            "description": descriptions.get(strategy, "Advanced compression technique"),
+            "available": strategy in compression_engine.get_available_strategies()
+        })
+    
+    return {"strategies": strategies}
+
+
+@app.post("/api/v1/compress")
+async def compress_text(
+    background_tasks: BackgroundTasks,
+    text: str,
+    strategy: Optional[str] = "extractive_summarization",
+    target_ratio: Optional[float] = 0.5,
+    target_length: Optional[int] = None,
+    preserve_structure: Optional[bool] = True,
+    model_name: Optional[str] = "sentence-transformers/all-MiniLM-L6-v2",
+    semantic_threshold: Optional[float] = 0.7
+):
+    """Compress text using specified strategy."""
+    try:
+        # Validate inputs
+        if not text or not text.strip():
+            raise HTTPException(status_code=400, detail="Text cannot be empty")
+        
+        if target_ratio and not (0.1 <= target_ratio <= 0.9):
+            raise HTTPException(status_code=400, detail="Target ratio must be between 0.1 and 0.9")
+        
+        try:
+            compression_strategy = CompressionStrategy(strategy)
+        except ValueError:
+            available_strategies = [s.value for s in CompressionStrategy]
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid strategy '{strategy}'. Available: {available_strategies}"
+            )
+        
+        # Create job ID
+        job_id = str(uuid.uuid4())
+        
+        # Initialize job tracking
+        compression_jobs[job_id] = {
+            "status": "pending",
+            "progress": 0.0,
+            "created_at": datetime.now(),
+            "strategy": strategy,
+            "config": {
+                "target_ratio": target_ratio,
+                "target_length": target_length,
+                "preserve_structure": preserve_structure,
+                "model_name": model_name,
+                "semantic_threshold": semantic_threshold
+            },
+            "original_length": len(text),
+            "results": None,
+            "error": None
+        }
+        
+        # Start compression in background
+        background_tasks.add_task(
+            run_compression_job,
+            job_id,
+            text,
+            compression_strategy,
+            target_ratio,
+            target_length,
+            preserve_structure,
+            model_name,
+            semantic_threshold
+        )
+        
+        return {
+            "job_id": job_id,
+            "status": "pending",
+            "message": "Compression job started",
+            "strategy": strategy
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to start compression: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+
+async def run_compression_job(
+    job_id: str,
+    text: str,
+    strategy: CompressionStrategy,
+    target_ratio: Optional[float],
+    target_length: Optional[int],
+    preserve_structure: bool,
+    model_name: str,
+    semantic_threshold: float
+):
+    """Run compression job in background."""
+    try:
+        compression_jobs[job_id]["status"] = "running"
+        compression_jobs[job_id]["progress"] = 0.1
+        
+        # Configure compression
+        config = CompressionConfig(
+            strategy=strategy,
+            target_ratio=target_ratio or 0.5,
+            semantic_threshold=semantic_threshold,
+            model_name=model_name
+        )
+        
+        # Update engine config
+        compression_engine.config = config
+        
+        # Run compression
+        compressed_text, metrics = await compression_engine.compress(
+            text=text,
+            strategy=strategy,
+            target_length=target_length,
+            preserve_structure=preserve_structure
+        )
+        
+        # Update job with results
+        compression_jobs[job_id]["status"] = "completed"
+        compression_jobs[job_id]["progress"] = 1.0
+        compression_jobs[job_id]["results"] = {
+            "compressed_text": compressed_text,
+            "metrics": {
+                "original_tokens": metrics.original_tokens,
+                "compressed_tokens": metrics.compressed_tokens,
+                "compression_ratio": metrics.compression_ratio,
+                "processing_time": metrics.processing_time,
+                "semantic_similarity": metrics.semantic_similarity,
+                "information_retention": metrics.information_retention
+            }
+        }
+        compression_jobs[job_id]["completed_at"] = datetime.now()
+        
+        logger.info(f"Compression job {job_id} completed successfully")
+        
+    except Exception as e:
+        logger.error(f"Compression job {job_id} failed: {e}")
+        compression_jobs[job_id]["status"] = "failed"
+        compression_jobs[job_id]["error"] = str(e)
+
+
+@app.get("/api/v1/compress/jobs/{job_id}")
+async def get_compression_job_status(job_id: str):
+    """Get compression job status."""
+    if job_id not in compression_jobs:
+        raise HTTPException(status_code=404, detail="Compression job not found")
+    
+    job = compression_jobs[job_id]
+    response = {
+        "job_id": job_id,
+        "status": job["status"],
+        "progress": job["progress"],
+        "created_at": job["created_at"].isoformat(),
+        "strategy": job["strategy"],
+        "config": job["config"],
+        "original_length": job["original_length"]
+    }
+    
+    if job.get("completed_at"):
+        response["completed_at"] = job["completed_at"].isoformat()
+    
+    if job.get("error"):
+        response["error"] = job["error"]
+    
+    if job.get("results"):
+        response["results"] = job["results"]
+    
+    return response
+
+
+@app.get("/api/v1/compress/jobs/{job_id}/results")
+async def get_compression_results(job_id: str):
+    """Get results of a completed compression job."""
+    if job_id not in compression_jobs:
+        raise HTTPException(status_code=404, detail="Compression job not found")
+    
+    job = compression_jobs[job_id]
+    
+    if job["status"] != "completed":
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Job is not completed (status: {job['status']})"
+        )
+    
+    return {
+        "job_id": job_id,
+        "compressed_text": job["results"]["compressed_text"],
+        "metrics": job["results"]["metrics"],
+        "strategy": job["strategy"],
+        "config": job["config"]
+    }
+
+
+@app.get("/api/v1/compress/jobs")
+async def list_compression_jobs():
+    """List all compression jobs."""
+    jobs = []
+    for job_id, job_data in compression_jobs.items():
+        jobs.append({
+            "job_id": job_id,
+            "status": job_data["status"],
+            "created_at": job_data["created_at"].isoformat(),
+            "strategy": job_data["strategy"],
+            "original_length": job_data["original_length"]
+        })
+    
+    # Sort by creation time (newest first)
+    jobs.sort(key=lambda x: x["created_at"], reverse=True)
+    return {"compression_jobs": jobs}
+
+
+@app.delete("/api/v1/compress/jobs/{job_id}")
+async def delete_compression_job(job_id: str):
+    """Delete a compression job."""
+    if job_id not in compression_jobs:
+        raise HTTPException(status_code=404, detail="Compression job not found")
+    
+    job = compression_jobs[job_id]
+    
+    if job["status"] == "running":
+        # Cancel running job
+        job["status"] = "cancelled"
+        return {"message": "Compression job cancelled"}
+    else:
+        # Delete completed/failed jobs
+        del compression_jobs[job_id]
+        return {"message": "Compression job deleted"}
+
+
+@app.post("/api/v1/compress/benchmark")
+async def benchmark_compression_strategies(
+    background_tasks: BackgroundTasks,
+    text: str,
+    target_length: Optional[int] = None
+):
+    """Benchmark all available compression strategies on the same text."""
+    try:
+        if not text or not text.strip():
+            raise HTTPException(status_code=400, detail="Text cannot be empty")
+        
+        # Create job ID for benchmark
+        job_id = str(uuid.uuid4())
+        
+        # Initialize benchmark job
+        compression_jobs[job_id] = {
+            "status": "pending",
+            "progress": 0.0,
+            "created_at": datetime.now(),
+            "type": "benchmark",
+            "original_length": len(text),
+            "target_length": target_length,
+            "results": None,
+            "error": None
+        }
+        
+        # Start benchmark in background
+        background_tasks.add_task(
+            run_compression_benchmark_job,
+            job_id,
+            text,
+            target_length
+        )
+        
+        return {
+            "job_id": job_id,
+            "status": "pending",
+            "message": "Compression benchmark started",
+            "type": "benchmark"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to start compression benchmark: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+
+async def run_compression_benchmark_job(
+    job_id: str,
+    text: str,
+    target_length: Optional[int]
+):
+    """Run compression benchmark job in background."""
+    try:
+        compression_jobs[job_id]["status"] = "running"
+        compression_jobs[job_id]["progress"] = 0.1
+        
+        # Run benchmark
+        benchmark_results = await compression_engine.benchmark_strategies(text, target_length)
+        
+        # Format results
+        formatted_results = {}
+        for strategy, (compressed_text, metrics) in benchmark_results.items():
+            formatted_results[strategy.value] = {
+                "compressed_text": compressed_text,
+                "metrics": {
+                    "original_tokens": metrics.original_tokens,
+                    "compressed_tokens": metrics.compressed_tokens,
+                    "compression_ratio": metrics.compression_ratio,
+                    "processing_time": metrics.processing_time,
+                    "semantic_similarity": metrics.semantic_similarity,
+                    "information_retention": metrics.information_retention
+                }
+            }
+        
+        # Update job with results
+        compression_jobs[job_id]["status"] = "completed"
+        compression_jobs[job_id]["progress"] = 1.0
+        compression_jobs[job_id]["results"] = formatted_results
+        compression_jobs[job_id]["completed_at"] = datetime.now()
+        
+        logger.info(f"Compression benchmark job {job_id} completed successfully")
+        
+    except Exception as e:
+        logger.error(f"Compression benchmark job {job_id} failed: {e}")
+        compression_jobs[job_id]["status"] = "failed"
+        compression_jobs[job_id]["error"] = str(e)
+
+
 @app.get("/api/v1/stats", response_model=StatsResponse)
 async def get_stats():
     """Get API usage statistics."""
@@ -571,12 +916,18 @@ async def get_stats():
     running_jobs = sum(1 for job in active_jobs.values() if job["status"] == "running")
     failed_jobs = sum(1 for job in active_jobs.values() if job["status"] == "failed")
     
+    total_compression_jobs = len(compression_jobs)
+    completed_compression_jobs = sum(1 for job in compression_jobs.values() if job["status"] == "completed")
+    
     return {
         "total_jobs": total_jobs,
         "completed_jobs": completed_jobs,
         "running_jobs": running_jobs,
         "failed_jobs": failed_jobs,
+        "total_compression_jobs": total_compression_jobs,
+        "completed_compression_jobs": completed_compression_jobs,
         "available_benchmarks": len(eval_suite.list_benchmarks()) + len(custom_benchmarks),
+        "available_compression_strategies": len(compression_engine.get_available_strategies()),
         "uptime": datetime.now().isoformat()
     }
 
