@@ -1,0 +1,133 @@
+# Multi-stage production Dockerfile for AGI Evaluation Sandbox
+FROM python:3.11-slim as base
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PIP_NO_CACHE_DIR=1
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app directory
+WORKDIR /app
+
+# Copy requirements first (for better caching)
+COPY pyproject.toml ./
+
+# Install Python dependencies
+RUN pip install --upgrade pip setuptools wheel
+RUN pip install -e .
+
+# Development stage
+FROM base as development
+
+# Install development dependencies
+RUN pip install -e ".[dev,test,docs]"
+
+# Copy source code
+COPY . .
+
+# Expose port
+EXPOSE 8080
+
+# Development command
+CMD ["python", "-m", "agi_eval_sandbox.api.main"]
+
+# Production stage
+FROM base as production
+
+# Install production dependencies only
+RUN pip install --no-dev -e .
+
+# Create non-root user
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+
+# Copy source code
+COPY --chown=appuser:appuser src/ ./src/
+COPY --chown=appuser:appuser pyproject.toml ./
+
+# Create logs directory
+RUN mkdir -p /app/logs && chown -R appuser:appuser /app/logs
+
+# Switch to non-root user
+USER appuser
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:8080/health || exit 1
+
+# Expose port
+EXPOSE 8080
+
+# Production command with multiple workers
+CMD ["gunicorn", "agi_eval_sandbox.api.main:app", \
+     "--workers", "4", \
+     "--worker-class", "uvicorn.workers.UvicornWorker", \
+     "--bind", "0.0.0.0:8080", \
+     "--access-logfile", "/app/logs/access.log", \
+     "--error-logfile", "/app/logs/error.log", \
+     "--log-level", "info", \
+     "--preload", \
+     "--max-requests", "1000", \
+     "--max-requests-jitter", "100", \
+     "--timeout", "300"]
+
+# Worker stage for Celery
+FROM production as worker
+
+# Switch back to root for installing additional dependencies
+USER root
+
+# Install ML dependencies for workers
+RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+RUN pip install transformers sentence-transformers scikit-learn
+
+# Switch back to app user
+USER appuser
+
+# Worker command
+CMD ["celery", "--app", "agi_eval_sandbox.core.tasks", "worker", \
+     "--loglevel=info", \
+     "--concurrency=4", \
+     "--max-tasks-per-child=100", \
+     "--max-memory-per-child=2000000"]
+
+# Testing stage
+FROM development as testing
+
+# Copy test files
+COPY tests/ ./tests/
+COPY test_*.py ./
+
+# Run tests
+RUN python -m pytest tests/ -v --cov=src --cov-report=term-missing
+
+# Security scanning stage
+FROM production as security
+
+# Install security tools
+USER root
+RUN pip install bandit safety
+
+# Run security scans
+RUN bandit -r src/
+RUN safety check
+
+# Final production stage
+FROM production as final
+
+# Metadata
+LABEL maintainer="Daniel Schmidt <daniel@terragon.ai>"
+LABEL version="1.0.0"
+LABEL description="AGI Evaluation Sandbox - Retrieval-free Context Compression"
+
+# Final health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD curl -f http://localhost:8080/health || exit 1

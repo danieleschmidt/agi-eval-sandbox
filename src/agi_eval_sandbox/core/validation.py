@@ -55,7 +55,7 @@ class InputValidator:
         r'setattr\s*\(',  # setattr calls
         r'compile\s*\(',  # compile calls
         r'open\s*\(',  # file operations
-        r'~/\',         # Home directory access
+        r'~/',         # Home directory access
         r'\/etc\/',     # System directory access
         r'\/proc\/',    # Process directory access
         r'\/sys\/',     # System directory access
@@ -208,38 +208,38 @@ class InputValidator:
         allow_empty: bool = False,
         check_suspicious: bool = True
     ) -> str:
-        \"\"\"Enhanced string validation with security features.\"\"\"
+        """Enhanced string validation with security features."""
         if not isinstance(value, str):
-            raise ValidationError(f\"{field_name} must be a string\", {
-                \"field\": field_name,
-                \"type\": type(value).__name__
+            raise ValidationError(f"{field_name} must be a string", {
+                "field": field_name,
+                "type": type(value).__name__
             })
         
         if not allow_empty and not value.strip():
-            raise ValidationError(f\"{field_name} cannot be empty\", {
-                \"field\": field_name
+            raise ValidationError(f"{field_name} cannot be empty", {
+                "field": field_name
             })
         
         # Use configurable max length
         max_len = max_length or self.config.max_string_length
         
         if len(value) < min_length:
-            raise ValidationError(f\"{field_name} must be at least {min_length} characters\", {
-                \"field\": field_name,
-                \"length\": len(value),
-                \"min_length\": min_length
+            raise ValidationError(f"{field_name} must be at least {min_length} characters", {
+                "field": field_name,
+                "length": len(value),
+                "min_length": min_length
             })
         
         if len(value) > max_len:
-            raise ValidationError(f\"{field_name} must be at most {max_len} characters\", {
-                \"field\": field_name,
-                \"length\": len(value),
-                \"max_length\": max_len
+            raise ValidationError(f"{field_name} must be at most {max_len} characters", {
+                "field": field_name,
+                "length": len(value),
+                "max_length": max_len
             })
         
         # Check for dangerous patterns with caching
         for i, pattern in enumerate(self.DANGEROUS_PATTERNS):
-            pattern_key = f\"{field_name}:{i}:{hashlib.md5(value.encode()).hexdigest()[:8]}\"
+            pattern_key = f"{field_name}:{i}:{hashlib.md5(value.encode()).hexdigest()[:8]}"
             
             # Use cache to avoid recomputing expensive regex matches
             if pattern_key not in self._suspicious_patterns_cache:
@@ -253,17 +253,17 @@ class InputValidator:
             
             if self._suspicious_patterns_cache[pattern_key]:
                 security_logger.log_security_violation(
-                    f\"Dangerous pattern detected in {field_name}\",
+                    f"Dangerous pattern detected in {field_name}",
                     {
-                        \"field\": field_name,
-                        \"pattern_index\": i,
-                        \"content_hash\": self.calculate_content_hash(value)
+                        "field": field_name,
+                        "pattern_index": i,
+                        "content_hash": self.calculate_content_hash(value)
                     }
                 )
-                raise SecurityError(f\"Potentially dangerous content detected in {field_name}\", {
-                    \"field\": field_name,
-                    \"pattern_index\": i,
-                    \"content_hash\": self.calculate_content_hash(value)
+                raise SecurityError(f"Potentially dangerous content detected in {field_name}", {
+                    "field": field_name,
+                    "pattern_index": i,
+                    "content_hash": self.calculate_content_hash(value)
                 })
         
         # Check for suspicious content if enabled
@@ -271,18 +271,18 @@ class InputValidator:
             suspicious_findings = self.detect_suspicious_content(value)
             if suspicious_findings:
                 logger.warning(
-                    f\"Suspicious content detected in {field_name}\",
+                    f"Suspicious content detected in {field_name}",
                     extra={
-                        \"field\": field_name,
-                        \"findings\": suspicious_findings,
-                        \"content_hash\": self.calculate_content_hash(value)
+                        "field": field_name,
+                        "findings": suspicious_findings,
+                        "content_hash": self.calculate_content_hash(value)
                     }
                 )
                 security_logger.log_suspicious_activity(
-                    f\"Suspicious content in {field_name}\",
+                    f"Suspicious content in {field_name}",
                     {
-                        \"field\": field_name,
-                        \"findings\": suspicious_findings
+                        "field": field_name,
+                        "findings": suspicious_findings
                     }
                 )
         

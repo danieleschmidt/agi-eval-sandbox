@@ -313,21 +313,21 @@ class EvalSuite:
         self._rate_limits[provider].append(now)
     
     async def _validate_resources(self) -> None:
-        \"\"\"Validate system resources before starting evaluation.\"\"\"
+        """Validate system resources before starting evaluation."""
         try:
             # Check system health
             health_checks = await health_monitor.run_all_checks()
             critical_issues = [
                 check for check in health_checks.values()
-                if check.status.value == \"critical\"
+                if check.status.value == "critical"
             ]
             
             if critical_issues:
                 raise ResourceError(
-                    \"Critical system resource issues detected\",
+                    "Critical system resource issues detected",
                     {
-                        \"issues\": [
-                            {\"check\": check.name, \"message\": check.message}
+                        "issues": [
+                            {"check": check.name, "message": check.message}
                             for check in critical_issues
                         ]
                     }
@@ -354,12 +354,12 @@ class EvalSuite:
             self._active_evaluations += 1
             
             logger.info(
-                f\"Starting evaluation {evaluation_id}\",
+                f"Starting evaluation {evaluation_id}",
                 extra={
-                    \"evaluation_id\": evaluation_id,
-                    \"model\": model_name,
-                    \"benchmark\": benchmark_name,
-                    \"active_evaluations\": self._active_evaluations
+                    "evaluation_id": evaluation_id,
+                    "model": model_name,
+                    "benchmark": benchmark_name,
+                    "active_evaluations": self._active_evaluations
                 }
             )
             
@@ -367,11 +367,11 @@ class EvalSuite:
             
         except Exception as e:
             logger.error(
-                f\"Evaluation {evaluation_id} failed: {str(e)}\",
+                f"Evaluation {evaluation_id} failed: {str(e)}",
                 extra={
-                    \"evaluation_id\": evaluation_id,
-                    \"error\": str(e),
-                    \"duration\": time.time() - start_time
+                    "evaluation_id": evaluation_id,
+                    "error": str(e),
+                    "duration": time.time() - start_time
                 }
             )
             raise
@@ -389,11 +389,11 @@ class EvalSuite:
             )
             
             logger.info(
-                f\"Evaluation {evaluation_id} completed\",
+                f"Evaluation {evaluation_id} completed",
                 extra={
-                    \"evaluation_id\": evaluation_id,
-                    \"duration\": duration,
-                    \"active_evaluations\": self._active_evaluations
+                    "evaluation_id": evaluation_id,
+                    "duration": duration,
+                    "active_evaluations": self._active_evaluations
                 }
             )
     

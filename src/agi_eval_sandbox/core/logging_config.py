@@ -320,63 +320,63 @@ class PerformanceLogger:
 
 
 class AuditLogger:
-    \"\"\"Specialized logger for audit trails and compliance.\"\"\"
+    """Specialized logger for audit trails and compliance."""
     
     def __init__(self):
-        self.logger = get_logger(\"audit\")
+        self.logger = get_logger("audit")
         self.metrics = LogMetrics()
     
     def log_user_action(self, user_id: str, action: str, resource: str, result: str, details: Optional[Dict[str, Any]] = None):
-        \"\"\"Log user actions for audit trail.\"\"\"
+        """Log user actions for audit trail."""
         self.logger.info(
-            f\"User action: {action}\",
+            f"User action: {action}",
             extra={
-                \"event_type\": \"user_action\",
-                \"user_id\": user_id,
-                \"action\": action,
-                \"resource\": resource,
-                \"result\": result,
-                \"details\": details or {},
-                \"compliance\": {
-                    \"audit_required\": True,
-                    \"retention_period\": \"7_years\"
+                "event_type": "user_action",
+                "user_id": user_id,
+                "action": action,
+                "resource": resource,
+                "result": result,
+                "details": details or {},
+                "compliance": {
+                    "audit_required": True,
+                    "retention_period": "7_years"
                 }
             }
         )
         self.metrics.total_logs += 1
     
     def log_data_access(self, user_id: str, data_type: str, operation: str, records_affected: int):
-        \"\"\"Log data access for privacy compliance.\"\"\"
+        """Log data access for privacy compliance."""
         self.logger.info(
-            f\"Data access: {operation} on {data_type}\",
+            f"Data access: {operation} on {data_type}",
             extra={
-                \"event_type\": \"data_access\",
-                \"user_id\": user_id,
-                \"data_type\": data_type,
-                \"operation\": operation,
-                \"records_affected\": records_affected,
-                \"compliance\": {
-                    \"gdpr_relevant\": True,
-                    \"audit_required\": True
+                "event_type": "data_access",
+                "user_id": user_id,
+                "data_type": data_type,
+                "operation": operation,
+                "records_affected": records_affected,
+                "compliance": {
+                    "gdpr_relevant": True,
+                    "audit_required": True
                 }
             }
         )
         self.metrics.total_logs += 1
     
     def log_system_change(self, user_id: str, change_type: str, component: str, before: Any, after: Any):
-        \"\"\"Log system configuration changes.\"\"\"
+        """Log system configuration changes."""
         self.logger.info(
-            f\"System change: {change_type} in {component}\",
+            f"System change: {change_type} in {component}",
             extra={
-                \"event_type\": \"system_change\",
-                \"user_id\": user_id,
-                \"change_type\": change_type,
-                \"component\": component,
-                \"before\": str(before)[:1000],  # Truncate for log size
-                \"after\": str(after)[:1000],
-                \"compliance\": {
-                    \"audit_required\": True,
-                    \"change_control\": True
+                "event_type": "system_change",
+                "user_id": user_id,
+                "change_type": change_type,
+                "component": component,
+                "before": str(before)[:1000],  # Truncate for log size
+                "after": str(after)[:1000],
+                "compliance": {
+                    "audit_required": True,
+                    "change_control": True
                 }
             }
         )
@@ -384,22 +384,22 @@ class AuditLogger:
 
 
 class CorrelationIdFilter(logging.Filter):
-    \"\"\"Filter to add correlation IDs to log records.\"\"\"
+    """Filter to add correlation IDs to log records."""
     
     def __init__(self):
         super().__init__()
         self._local = threading.local()
     
     def set_correlation_id(self, correlation_id: str):
-        \"\"\"Set correlation ID for current thread.\"\"\"
+        """Set correlation ID for current thread."""
         self._local.correlation_id = correlation_id
     
     def get_correlation_id(self) -> Optional[str]:
-        \"\"\"Get correlation ID for current thread.\"\"\"
+        """Get correlation ID for current thread."""
         return getattr(self._local, 'correlation_id', None)
     
     def filter(self, record: logging.LogRecord) -> bool:
-        \"\"\"Add correlation ID to log record.\"\"\"
+        """Add correlation ID to log record."""
         correlation_id = self.get_correlation_id()
         if correlation_id:
             record.correlation_id = correlation_id
@@ -407,7 +407,7 @@ class CorrelationIdFilter(logging.Filter):
 
 
 class MetricsCollectingHandler(logging.Handler):
-    \"\"\"Handler that collects logging metrics.\"\"\"
+    """Handler that collects logging metrics."""
     
     def __init__(self):
         super().__init__()
@@ -416,7 +416,7 @@ class MetricsCollectingHandler(logging.Handler):
         self._lock = threading.Lock()
     
     def emit(self, record: logging.LogRecord):
-        \"\"\"Collect metrics from log record.\"\"\"
+        """Collect metrics from log record."""
         with self._lock:
             self.metrics.total_logs += 1
             
@@ -441,26 +441,26 @@ class MetricsCollectingHandler(logging.Handler):
                     self.metrics.security_events += 1
     
     def get_metrics(self) -> Dict[str, Any]:
-        \"\"\"Get collected metrics.\"\"\"
+        """Get collected metrics."""
         with self._lock:
             uptime = datetime.now() - self.metrics.start_time
             return {
-                \"total_logs\": self.metrics.total_logs,
-                \"errors\": self.metrics.errors,
-                \"warnings\": self.metrics.warnings,
-                \"performance_events\": self.metrics.performance_events,
-                \"security_events\": self.metrics.security_events,
-                \"last_error_time\": self.metrics.last_error_time.isoformat() if self.metrics.last_error_time else None,
-                \"last_warning_time\": self.metrics.last_warning_time.isoformat() if self.metrics.last_warning_time else None,
-                \"uptime_seconds\": uptime.total_seconds(),
-                \"log_counts_by_logger\": self._log_counts.copy(),
-                \"logs_per_second\": self.metrics.total_logs / uptime.total_seconds() if uptime.total_seconds() > 0 else 0
+                "total_logs": self.metrics.total_logs,
+                "errors": self.metrics.errors,
+                "warnings": self.metrics.warnings,
+                "performance_events": self.metrics.performance_events,
+                "security_events": self.metrics.security_events,
+                "last_error_time": self.metrics.last_error_time.isoformat() if self.metrics.last_error_time else None,
+                "last_warning_time": self.metrics.last_warning_time.isoformat() if self.metrics.last_warning_time else None,
+                "uptime_seconds": uptime.total_seconds(),
+                "log_counts_by_logger": self._log_counts.copy(),
+                "logs_per_second": self.metrics.total_logs / uptime.total_seconds() if uptime.total_seconds() > 0 else 0
             }
 
 
 @contextmanager
 def correlation_context(correlation_id: str):
-    \"\"\"Context manager for setting correlation ID.\"\"\"
+    """Context manager for setting correlation ID."""
     correlation_filter = correlation_id_filter  # Global filter instance
     old_id = correlation_filter.get_correlation_id()
     correlation_filter.set_correlation_id(correlation_id)
