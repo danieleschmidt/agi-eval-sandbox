@@ -25,7 +25,7 @@ import {
   LinearProgress,
   SelectChangeEvent,
 } from '@mui/material';
-import { Add, Delete, Compare, Psychology } from '@mui/icons-material';
+import { Add, Delete, Compare, Psychology, ContentCopy } from '@mui/icons-material';
 import { useDispatch } from 'react-redux';
 import {
   useGetBenchmarksQuery,
@@ -96,6 +96,16 @@ const ComparisonPage: React.FC = () => {
     }]);
   };
 
+  const duplicateModel = (modelToDuplicate: ModelConfig) => {
+    const newId = Math.max(...models.map(m => parseInt(m.id))) + 1;
+    const duplicated = {
+      ...modelToDuplicate,
+      id: newId.toString(),
+      name: `${modelToDuplicate.name} (copy)`,
+    };
+    setModels([...models, duplicated]);
+  };
+
   const removeModel = (id: string) => {
     if (models.length > 2) {
       setModels(models.filter(m => m.id !== id));
@@ -111,26 +121,70 @@ const ComparisonPage: React.FC = () => {
     setSelectedBenchmarks(value);
   };
 
-  const handleStartComparison = async () => {
-    try {
-      // Validate models
-      for (const model of models) {
-        if (!model.name) {
-          dispatch(addNotification({
-            message: 'Please enter names for all models',
-            type: 'error',
-          }));
-          return;
-        }
-        if (model.provider !== 'local' && !model.api_key) {
-          dispatch(addNotification({
-            message: 'API keys are required for non-local models',
-            type: 'error',
-          }));
-          return;
-        }
+  const validateComparison = (): boolean => {
+    // Validate models
+    for (const model of models) {
+      if (!model.name?.trim()) {
+        dispatch(addNotification({
+          message: 'Please enter names for all models',
+          type: 'error',
+        }));
+        return false;
       }
+      if (model.provider !== 'local' && !model.api_key?.trim()) {
+        dispatch(addNotification({
+          message: 'API keys are required for non-local models',
+          type: 'error',
+        }));
+        return false;
+      }
+    }
 
+    // Validate at least 2 models
+    if (models.length < 2) {
+      dispatch(addNotification({
+        message: 'At least 2 models are required for comparison',
+        type: 'error',
+      }));
+      return false;
+    }
+
+    // Validate benchmarks selection
+    if (selectedBenchmarks.length === 0) {
+      dispatch(addNotification({
+        message: 'Please select at least one benchmark',
+        type: 'error',
+      }));
+      return false;
+    }
+
+    // Validate configuration
+    if (temperature < 0 || temperature > 2) {
+      dispatch(addNotification({
+        message: 'Temperature must be between 0 and 2',
+        type: 'error',
+      }));
+      return false;
+    }
+
+    if (maxTokens < 1 || maxTokens > 8192) {
+      dispatch(addNotification({
+        message: 'Max tokens must be between 1 and 8192',
+        type: 'error',
+      }));
+      return false;
+    }
+
+    return true;
+  };
+
+  const handleStartComparison = async () => {
+    // Validate form before submitting
+    if (!validateComparison()) {
+      return;
+    }
+
+    try {
       const modelsToCompare = models.map(({ id, ...model }) => model);
       
       const response = await compareModels({
@@ -152,10 +206,12 @@ const ComparisonPage: React.FC = () => {
       }));
 
     } catch (error: any) {
+      const errorMessage = error.data?.detail || error.message || 'Unknown error occurred';
       dispatch(addNotification({
-        message: `Failed to start comparison: ${error.data?.detail || error.message}`,
+        message: `Failed to start comparison: ${errorMessage}`,
         type: 'error',
       }));
+      console.error('Comparison start error:', error);
     }
   };
 
@@ -180,16 +236,28 @@ const ComparisonPage: React.FC = () => {
                     <Typography variant="subtitle1" sx={{ fontWeight: 500 }}>
                       Model {index + 1}
                     </Typography>
-                    {models.length > 2 && (
+                    <Box sx={{ display: 'flex', gap: 0.5 }}>
                       <IconButton 
                         size="small" 
-                        color="error"
-                        onClick={() => removeModel(model.id)}
-                        disabled={isComparing}
+                        color="primary"
+                        onClick={() => duplicateModel(model)}
+                        disabled={isComparing || models.length >= 5}
+                        title="Duplicate model"
                       >
-                        <Delete />
+                        <ContentCopy />
                       </IconButton>
-                    )}
+                      {models.length > 2 && (
+                        <IconButton 
+                          size="small" 
+                          color="error"
+                          onClick={() => removeModel(model.id)}
+                          disabled={isComparing}
+                          title="Remove model"
+                        >
+                          <Delete />
+                        </IconButton>
+                      )}
+                    </Box>
                   </Box>
 
                   <Grid container spacing={2}>

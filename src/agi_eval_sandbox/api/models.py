@@ -228,3 +228,50 @@ class StatsResponse(BaseModel):
                 "uptime": "2024-01-15T10:30:00Z"
             }
         }
+
+
+class CustomBenchmarkRequest(BaseModel):
+    """Request to create a custom benchmark."""
+    name: str = Field(min_length=1)
+    description: str
+    questions: List[Dict[str, Any]] = Field(min_items=1)
+    category: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "name": "my-custom-benchmark",
+                "description": "A custom benchmark for testing specific capabilities",
+                "questions": [
+                    {
+                        "prompt": "What is 2+2?",
+                        "answer": "4",
+                        "category": "math",
+                        "difficulty": "easy"
+                    }
+                ],
+                "category": "custom",
+                "tags": ["math", "basic"]
+            }
+        }
+
+
+class CustomBenchmarkResponse(BaseModel):
+    """Response when creating a custom benchmark."""
+    benchmark_id: str
+    name: str
+    status: str
+    message: str
+    total_questions: int
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "benchmark_id": "custom_550e8400-e29b-41d4-a716-446655440000",
+                "name": "my-custom-benchmark",
+                "status": "created",
+                "message": "Custom benchmark created successfully",
+                "total_questions": 5
+            }
+        }

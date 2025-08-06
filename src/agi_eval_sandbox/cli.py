@@ -223,7 +223,7 @@ def compare(models: str, benchmarks: str, output: Optional[str]):
         sys.exit(1)
 
 
-@main.command()
+@main.command(name='list')
 def list_benchmarks():
     """List all available benchmarks."""
     suite = EvalSuite()
@@ -318,6 +318,149 @@ def leaderboard(benchmark: Optional[str], metric: str, limit: int):
             f"{rank:<6} {record['model_name']:<20} {record['model_provider']:<12} "
             f"{record['benchmark']:<15} {record['average_score']:<10.3f} {record['pass_rate']:<12.1f}%"
         )
+
+
+@main.command()
+@click.option('--api-url', default='http://localhost:8080', help='API server URL')
+@click.option('--job-id', help='Specific job ID to check')
+@click.option('--watch', '-w', is_flag=True, help='Watch mode - continuously poll for updates')
+@click.option('--interval', type=int, default=5, help='Poll interval in seconds for watch mode')
+def status(api_url: str, job_id: Optional[str], watch: bool, interval: int):
+    """Check status of running evaluations."""
+    try:
+        import requests
+        import time
+    except ImportError:
+        click.echo("❌ 'requests' package is required for status command. Install with: pip install requests", err=True)
+        sys.exit(1)
+    
+    try:
+        if job_id:
+            # Check specific job status
+            url = f"{api_url.rstrip('/')}/api/v1/jobs/{job_id}"
+            
+            while True:
+                try:
+                    response = requests.get(url, timeout=10)
+                    if response.status_code == 404:
+                        click.echo(f"❌ Job '{job_id}' not found", err=True)
+                        sys.exit(1)
+                    
+                    response.raise_for_status()
+                    job_data = response.json()
+                    
+                    click.clear()
+                    click.echo(f"📊 Job Status: {job_id}")
+                    click.echo("="*50)
+                    click.echo(f"Status: {job_data['status']}")
+                    click.echo(f"Progress: {job_data['progress']:.1%}")
+                    click.echo(f"Created: {job_data['created_at']}")
+                    
+                    if job_data.get('completed_at'):
+                        click.echo(f"Completed: {job_data['completed_at']}")
+                    
+                    if job_data.get('error'):
+                        click.echo(f"❌ Error: {job_data['error']}")
+                    
+                    # Get results if completed
+                    if job_data['status'] == 'completed':
+                        try:
+                            results_url = f"{api_url.rstrip('/')}/api/v1/jobs/{job_id}/results"
+                            results_response = requests.get(results_url, timeout=10)
+                            if results_response.status_code == 200:
+                                results = results_response.json()
+                                if results.get('results'):
+                                    summary = results['results']
+                                    click.echo("\n📈 Results:")
+                                    click.echo(f"Overall Score: {summary.get('overall_score', 0):.3f}")
+                                    click.echo(f"Pass Rate: {summary.get('overall_pass_rate', 0):.1f}%")
+                                    click.echo(f"Total Questions: {summary.get('total_questions', 0)}")
+                        except Exception as e:
+                            click.echo(f"⚠️ Could not fetch results: {e}")
+                    
+                    if not watch or job_data['status'] in ['completed', 'failed', 'cancelled']:
+                        break
+                    
+                    click.echo(f"\n🔄 Refreshing in {interval}s... (Ctrl+C to stop)")
+                    time.sleep(interval)
+                    
+                except requests.RequestException as e:
+                    click.echo(f"❌ Failed to connect to API: {e}", err=True)
+                    if not watch:
+                        sys.exit(1)
+                    time.sleep(interval)
+                except KeyboardInterrupt:
+                    click.echo("\n👋 Stopped watching")
+                    break
+        
+        else:
+            # List all jobs status
+            url = f"{api_url.rstrip('/')}/api/v1/jobs"
+            
+            while True:
+                try:
+                    response = requests.get(url, timeout=10)
+                    response.raise_for_status()
+                    data = response.json()
+                    jobs = data.get('jobs', [])
+                    
+                    click.clear()
+                    click.echo("📋 Evaluation Jobs Status")
+                    click.echo("="*60)
+                    
+                    if not jobs:
+                        click.echo("No evaluation jobs found.")
+                    else:
+                        # Header
+                        click.echo(f"{'Job ID':<12} {'Status':<12} {'Model':<20} {'Provider':<12} {'Created':<20}")
+                        click.echo("-" * 60)
+                        
+                        # Jobs
+                        for job in jobs:
+                            job_id_short = job['job_id'][:8] + '...' if len(job['job_id']) > 8 else job['job_id']
+                            status_icon = {
+                                'pending': '⏳',
+                                'running': '🔄',
+                                'completed': '✅',
+                                'failed': '❌',
+                                'cancelled': '🚫'
+                            }.get(job['status'], '❓')
+                            
+                            click.echo(
+                                f"{job_id_short:<12} {status_icon + job['status']:<12} {job['model']:<20} "
+                                f"{job['provider']:<12} {job['created_at'][:19]:<20}"
+                            )
+                        
+                        # Summary
+                        running_count = sum(1 for j in jobs if j['status'] == 'running')
+                        completed_count = sum(1 for j in jobs if j['status'] == 'completed')
+                        failed_count = sum(1 for j in jobs if j['status'] == 'failed')
+                        
+                        click.echo("\n📊 Summary:")
+                        click.echo(f"Running: {running_count}, Completed: {completed_count}, Failed: {failed_count}")
+                    
+                    if not watch:
+                        break
+                    
+                    click.echo(f"\n🔄 Refreshing in {interval}s... (Ctrl+C to stop)")
+                    time.sleep(interval)
+                    
+                except requests.RequestException as e:
+                    click.echo(f"❌ Failed to connect to API server at {api_url}", err=True)
+                    click.echo(f"Make sure the server is running with: agi-eval serve")
+                    if not watch:
+                        sys.exit(1)
+                    time.sleep(interval)
+                except KeyboardInterrupt:
+                    click.echo("\n👋 Stopped watching")
+                    break
+    
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        if logger.isEnabledFor(logging.DEBUG):
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
 
 
 @main.command()
