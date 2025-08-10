@@ -123,7 +123,7 @@ def setup_logging(
         "disable_existing_loggers": False,
         "formatters": {
             "structured": {
-                "()": StructuredFormatter,
+                "()": EnhancedStructuredFormatter,
             },
             "simple": {
                 "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
