@@ -9,7 +9,7 @@ from typing import List, Optional
 import logging
 
 from .core import EvalSuite, Model
-from .core.context_compressor import ContextCompressionEngine, CompressionStrategy, CompressionConfig
+# from .core.context_compressor import ContextCompressionEngine, CompressionStrategy, CompressionConfig
 from .config import settings
 
 
