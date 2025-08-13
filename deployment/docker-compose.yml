@@ -1,0 +1,209 @@
+version: '3.8'
+
+services:
+  # AGI Evaluation Sandbox API
+  agi-eval-api:
+    build:
+      context: ..
+      dockerfile: deployment/docker/Dockerfile
+      args:
+        - ENVIRONMENT=production
+        - BUILD_DATE=${BUILD_DATE:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}
+        - VERSION=${VERSION:-1.0.0}
+        - VCS_REF=${VCS_REF:-$(git rev-parse HEAD)}
+    container_name: agi-eval-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql://agi_eval:${POSTGRES_PASSWORD}@postgres:5432/agi_eval
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - SECRET_KEY=${SECRET_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - PROMETHEUS_ENABLED=true
+      - JAEGER_ENABLED=true
+      - JAEGER_AGENT_HOST=jaeger
+    volumes:
+      - agi_eval_data:/app/data
+      - agi_eval_logs:/app/logs
+      - agi_eval_cache:/app/cache
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - agi_eval_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: agi-eval-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=agi_eval
+      - POSTGRES_USER=agi_eval
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - agi_eval_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agi_eval -d agi_eval"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis Cache & Message Broker
+  redis:
+    image: redis:7-alpine
+    container_name: agi-eval-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    networks:
+      - agi_eval_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Celery Worker
+  celery-worker:
+    build:
+      context: ..
+      dockerfile: deployment/docker/Dockerfile
+    container_name: agi-eval-celery
+    restart: unless-stopped
+    command: ["celery", "-A", "src.agi_eval_sandbox.worker", "worker", "--loglevel=info", "--concurrency=4"]
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql://agi_eval:${POSTGRES_PASSWORD}@postgres:5432/agi_eval
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - SECRET_KEY=${SECRET_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+    volumes:
+      - agi_eval_data:/app/data
+      - agi_eval_logs:/app/logs
+      - agi_eval_cache:/app/cache
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - agi_eval_network
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: agi-eval-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - agi_eval_static:/var/www/static:ro
+    depends_on:
+      - agi-eval-api
+    networks:
+      - agi_eval_network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Prometheus Monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: agi-eval-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+    networks:
+      - agi_eval_network
+
+  # Grafana Dashboard
+  grafana:
+    image: grafana/grafana:latest
+    container_name: agi-eval-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    depends_on:
+      - prometheus
+    networks:
+      - agi_eval_network
+
+  # Jaeger Tracing
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: agi-eval-jaeger
+    restart: unless-stopped
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "14268:14268"  # Jaeger collector
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - agi_eval_network
+
+volumes:
+  agi_eval_data:
+    driver: local
+  agi_eval_logs:
+    driver: local
+  agi_eval_cache:
+    driver: local
+  agi_eval_static:
+    driver: local
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  agi_eval_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

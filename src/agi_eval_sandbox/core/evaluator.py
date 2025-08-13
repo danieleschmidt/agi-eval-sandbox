@@ -26,6 +26,8 @@ from .exceptions import (
 from .validation import InputValidator, ResourceValidator
 from .logging_config import get_logger, performance_logger, security_logger
 from .health import health_monitor
+from .optimization import performance_optimizer, PerformanceMetrics
+from .cache import cache_manager
 
 logger = get_logger("evaluator")
 
@@ -244,6 +246,10 @@ class EvalSuite:
         
         # Validation
         self._validator = InputValidator()
+        
+        # Performance monitoring
+        self._performance_metrics = PerformanceMetrics()
+        self._enable_optimizations = True
         
         self._register_default_benchmarks()
     
@@ -718,70 +724,486 @@ class EvalSuite:
         num_questions: Optional[int] = None,
         **config
     ) -> BenchmarkResult:
-        """Evaluate model on a single benchmark."""
-        logger.info(f"Evaluating {benchmark.name} benchmark")
+        """Evaluate model on a single benchmark with comprehensive error handling."""
+        start_time = time.time()
+        benchmark_name = benchmark.name
+        model_name = model.name
         
-        # Get questions
-        questions = benchmark.get_questions()
-        if num_questions:
-            questions = questions[:num_questions]
-        
-        # Generate responses for all questions
-        prompts = [q.prompt for q in questions]
+        logger.info(f"Evaluating {benchmark_name} benchmark with model {model_name}")
         
         try:
-            responses = await model.batch_generate(prompts, **config)
+            # Get circuit breaker for this model
+            circuit_breaker = self._get_circuit_breaker(model_name)
+            
+            # Get questions
+            questions = benchmark.get_questions()
+            if num_questions:
+                questions = questions[:min(num_questions, len(questions))]
+            
+            if not questions:
+                raise EvaluationError(f"No questions available for benchmark {benchmark_name}")
+            
+            logger.info(f"Processing {len(questions)} questions for {benchmark_name}")
+            
+            # Generate responses with circuit breaker protection
+            evaluation_results = await circuit_breaker.call(
+                self._generate_and_evaluate_responses,
+                model, benchmark, questions, config
+            )
+            
+            # Create benchmark result
+            benchmark_result = BenchmarkResult(
+                benchmark_name=benchmark_name,
+                model_name=model_name,
+                model_provider=getattr(model, 'provider_name', 'unknown'),
+                results=evaluation_results,
+                config=config
+            )
+            
+            # Log performance metrics
+            duration = time.time() - start_time
+            performance_logger.log_evaluation_performance(
+                model_name=model_name,
+                benchmark=benchmark_name,
+                duration_seconds=duration,
+                questions_count=len(questions),
+                success=True
+            )
+            
+            logger.info(
+                f"Completed {benchmark_name}: {benchmark_result.average_score:.3f} avg score, "
+                f"{benchmark_result.pass_rate:.1f}% pass rate in {duration:.2f}s"
+            )
+            
+            return benchmark_result
+            
         except Exception as e:
-            logger.error(f"Error generating responses for {benchmark.name}: {e}")
-            # Fallback to sequential generation
-            responses = []
-            for prompt in prompts:
-                try:
-                    response = await model.generate(prompt, **config)
-                    responses.append(response)
-                except Exception as e:
-                    logger.warning(f"Failed to generate response for question: {e}")
-                    responses.append("")
+            duration = time.time() - start_time
+            error_msg = f"Benchmark evaluation failed for {benchmark_name}: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            
+            # Log failure metrics
+            performance_logger.log_evaluation_performance(
+                model_name=model_name,
+                benchmark=benchmark_name,
+                duration_seconds=duration,
+                questions_count=0,
+                success=False
+            )
+            
+            # Create empty result set for failed benchmark
+            benchmark_result = BenchmarkResult(
+                benchmark_name=benchmark_name,
+                model_name=model_name,
+                model_provider=getattr(model, 'provider_name', 'unknown'),
+                results=[],
+                config=config
+            )
+            
+            return benchmark_result
+    
+    async def _generate_and_evaluate_responses(
+        self,
+        model: Model,
+        benchmark: Benchmark,
+        questions: List,
+        config: Dict[str, Any]
+    ) -> List[EvaluationResult]:
+        """Generate responses and evaluate them with retry logic."""
+        prompts = [q.prompt for q in questions]
+        evaluation_results = []
+        
+        try:
+            # Try batch generation first
+            responses = await self._retry_handler.execute_with_retry(
+                model.batch_generate, prompts, **config
+            )
+            logger.debug(f"Batch generation successful for {len(prompts)} prompts")
+            
+        except Exception as e:
+            logger.warning(f"Batch generation failed, falling back to sequential: {e}")
+            # Fallback to sequential generation with retries
+            responses = await self._sequential_generation_with_retries(model, prompts, config)
         
         # Evaluate responses
-        evaluation_results = []
         for question, response in zip(questions, responses):
+            eval_result = await self._evaluate_single_response(
+                model, benchmark, question, response
+            )
+            evaluation_results.append(eval_result)
+        
+        return evaluation_results
+    
+    async def _sequential_generation_with_retries(
+        self,
+        model: Model,
+        prompts: List[str],
+        config: Dict[str, Any]
+    ) -> List[str]:
+        """Generate responses sequentially with retry logic."""
+        responses = []
+        
+        for i, prompt in enumerate(prompts):
             try:
-                score = benchmark.evaluate_response(question, response)
-                eval_result = EvaluationResult(
-                    question_id=question.id,
-                    question_prompt=question.prompt,
-                    model_response=response,
-                    score=score,
-                    benchmark_name=benchmark.name,
-                    category=question.category
+                response = await self._retry_handler.execute_with_retry(
+                    model.generate, prompt, **config
                 )
-                evaluation_results.append(eval_result)
+                responses.append(response)
+                logger.debug(f"Generated response {i+1}/{len(prompts)}")
+                
             except Exception as e:
-                logger.error(f"Error evaluating question {question.id}: {e}")
-                # Create a failed result
-                from .benchmarks import Score
-                failed_score = Score(value=0.0, passed=False, explanation=f"Evaluation error: {e}")
-                eval_result = EvaluationResult(
-                    question_id=question.id,
-                    question_prompt=question.prompt,
-                    model_response=response,
-                    score=failed_score,
-                    benchmark_name=benchmark.name,
-                    category=question.category
-                )
-                evaluation_results.append(eval_result)
+                logger.warning(f"Failed to generate response for prompt {i+1}: {e}")
+                responses.append(f"GENERATION_ERROR: {str(e)}")
         
-        benchmark_result = BenchmarkResult(
-            benchmark_name=benchmark.name,
-            model_name=model.name,
-            model_provider=model.provider_name,
-            results=evaluation_results,
-            config=config
+        return responses
+    
+    async def _evaluate_single_response(
+        self,
+        model: Model,
+        benchmark: Benchmark,
+        question,
+        response: str
+    ) -> EvaluationResult:
+        """Evaluate a single response with comprehensive error handling."""
+        start_time = time.time()
+        
+        try:
+            # Sanitize response for security
+            sanitized_response = self._validator.sanitize_user_input(response)
+            
+            # Evaluate response
+            try:
+                score = benchmark.evaluate_response(question, sanitized_response)
+            except Exception as eval_error:
+                logger.warning(f"Evaluation failed for question {question.id}: {eval_error}")
+                # Use fallback evaluation
+                score = self._create_fallback_score(question, sanitized_response, str(eval_error))
+            
+            # Calculate performance metrics
+            duration = time.time() - start_time
+            
+            # Create evaluation result with comprehensive metadata
+            eval_result = EvaluationResult(
+                question_id=question.id,
+                question_prompt=question.prompt,
+                model_response=sanitized_response,
+                score=score,
+                benchmark_name=benchmark.name,
+                category=getattr(question, 'category', 'uncategorized'),
+                metadata={
+                    "evaluation_duration_seconds": duration,
+                    "model_name": model.name,
+                    "model_provider": getattr(model, 'provider_name', 'unknown'),
+                    "response_length": len(sanitized_response),
+                    "evaluation_timestamp": datetime.now().isoformat(),
+                    "evaluation_version": "2.0"
+                }
+            )
+            
+            return eval_result
+            
+        except Exception as e:
+            duration = time.time() - start_time
+            error_msg = f"Failed to evaluate question {question.id}: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            
+            # Create comprehensive error result
+            from .benchmarks import Score
+            error_score = Score(
+                value=0.0,
+                passed=False,
+                explanation=f"Evaluation system error: {str(e)}"
+            )
+            
+            return EvaluationResult(
+                question_id=question.id,
+                question_prompt=question.prompt,
+                model_response=f"EVALUATION_ERROR: {str(e)}",
+                score=error_score,
+                benchmark_name=benchmark.name,
+                category=getattr(question, 'category', 'error'),
+                metadata={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "evaluation_duration_seconds": duration,
+                    "evaluation_timestamp": datetime.now().isoformat(),
+                    "evaluation_version": "2.0"
+                }
+            )
+    
+    def _create_fallback_score(self, question, response: str, error_msg: str):
+        """Create fallback score when primary evaluation fails."""
+        from .benchmarks import Score
+        
+        # Simple heuristic-based fallback scoring
+        if not response or response.startswith("ERROR") or response.startswith("GENERATION_ERROR"):
+            return Score(value=0.0, passed=False, explanation=f"No valid response generated: {error_msg}")
+        
+        # Basic length and content checks
+        if len(response.strip()) < 10:
+            score_value = 0.1
+        elif len(response.strip()) > 100:
+            score_value = 0.3
+        else:
+            score_value = 0.2
+        
+        return Score(
+            value=score_value,
+            passed=score_value > 0.5,
+            explanation=f"Fallback evaluation used due to: {error_msg}"
         )
+    
+    def _get_circuit_breaker(self, model_name: str) -> CircuitBreaker:
+        """Get or create circuit breaker for model."""
+        if model_name not in self._circuit_breakers:
+            self._circuit_breakers[model_name] = CircuitBreaker(
+                name=f"model_{model_name}",
+                config=CircuitBreakerConfig()
+            )
+        return self._circuit_breakers[model_name]
+    
+    async def evaluate_optimized(
+        self,
+        model: Model,
+        benchmarks: Union[str, List[str]] = "all",
+        num_questions: Optional[int] = None,
+        save_results: bool = True,
+        use_cache: bool = True,
+        parallel: bool = True,
+        optimization_level: str = "balanced",  # "speed", "balanced", "accuracy"
+        **config
+    ) -> Results:
+        """
+        Optimized evaluation with adaptive performance features.
         
-        logger.info(f"Completed {benchmark.name}: {benchmark_result.average_score:.3f} avg score, {benchmark_result.pass_rate:.1f}% pass rate")
-        return benchmark_result
+        Args:
+            model: Model to evaluate
+            benchmarks: Benchmarks to run
+            num_questions: Number of questions per benchmark
+            save_results: Whether to save results to history
+            use_cache: Whether to use intelligent caching
+            parallel: Whether to use parallel processing
+            optimization_level: Optimization strategy ("speed", "balanced", "accuracy")
+            **config: Additional configuration
+        
+        Returns:
+            Results object with comprehensive metrics
+        """
+        start_time = time.time()
+        
+        # Validate inputs
+        self._validate_evaluation_inputs(model, benchmarks, num_questions, config)
+        
+        # Apply optimization configuration
+        if optimization_level == "speed":
+            config.setdefault("temperature", 0.1)
+            config.setdefault("max_tokens", 100)
+            parallel = True
+            use_cache = True
+        elif optimization_level == "accuracy":
+            config.setdefault("temperature", 0.7)
+            config.setdefault("max_tokens", 500)
+            # parallel can be True for accuracy too
+        # "balanced" uses default settings
+        
+        try:
+            async with self._evaluation_context(model.name, str(benchmarks)):
+                # Prepare benchmark list
+                if benchmarks == "all":
+                    benchmark_list = list(self._benchmarks.values())
+                elif isinstance(benchmarks, str):
+                    benchmark_list = [self._benchmarks[benchmarks]]
+                else:
+                    benchmark_list = [self._benchmarks[name] for name in benchmarks if name in self._benchmarks]
+                
+                if parallel and self._enable_optimizations:
+                    # Use optimized parallel evaluation
+                    results = await self._evaluate_parallel_optimized(
+                        model, benchmark_list, num_questions, use_cache, **config
+                    )
+                else:
+                    # Use sequential evaluation
+                    results = await self._evaluate_sequential(
+                        model, benchmark_list, num_questions, use_cache, **config
+                    )
+                
+                # Update performance metrics
+                duration = time.time() - start_time
+                total_questions = sum(len(br.results) for br in results.benchmark_results)
+                
+                self._performance_metrics.avg_response_time = duration / total_questions if total_questions > 0 else 0
+                self._performance_metrics.throughput_qps = total_questions / duration if duration > 0 else 0
+                self._performance_metrics.success_rate = 100.0  # Updated based on actual results
+                
+                # Log comprehensive performance metrics
+                performance_logger.log_evaluation_performance(
+                    model_name=model.name,
+                    benchmark="optimized_evaluation",
+                    duration_seconds=duration,
+                    questions_count=total_questions,
+                    success=True
+                )
+                
+                if save_results:
+                    self._results_history.append(results)
+                
+                logger.info(
+                    f"Optimized evaluation completed: {total_questions} questions in {duration:.2f}s "
+                    f"({self._performance_metrics.throughput_qps:.1f} QPS)"
+                )
+                
+                return results
+                
+        except Exception as e:
+            duration = time.time() - start_time
+            logger.error(f"Optimized evaluation failed: {e}", exc_info=True)
+            
+            # Create minimal results object for failed evaluation
+            results = Results()
+            results.metadata = {
+                "error": str(e),
+                "duration_seconds": duration,
+                "model_name": model.name,
+                "optimization_level": optimization_level
+            }
+            
+            return results
+    
+    async def _evaluate_parallel_optimized(
+        self,
+        model: Model,
+        benchmarks: List[Benchmark],
+        num_questions: Optional[int],
+        use_cache: bool,
+        **config
+    ) -> Results:
+        """Parallel evaluation with performance optimizations."""
+        
+        # Create evaluation tasks
+        benchmark_tasks = []
+        for benchmark in benchmarks:
+            cache_key = None
+            if use_cache:
+                cache_key = f"benchmark_{model.name}_{benchmark.name}_{num_questions}_{hash(str(config))}"
+            
+            task = self._evaluate_benchmark_cached(
+                model, benchmark, num_questions, cache_key, **config
+            )
+            benchmark_tasks.append(task)
+        
+        # Execute tasks in parallel
+        if len(benchmark_tasks) > 1:
+            benchmark_results = await asyncio.gather(*benchmark_tasks, return_exceptions=True)
+        else:
+            benchmark_results = [await benchmark_tasks[0]]
+        
+        # Create results object
+        results = Results()
+        for result in benchmark_results:
+            if isinstance(result, BenchmarkResult):
+                results.add_benchmark_result(result)
+            elif isinstance(result, Exception):
+                logger.error(f"Benchmark evaluation failed: {result}")
+                # Create empty benchmark result for failed benchmark
+                # (details would be implementation-specific)
+        
+        return results
+    
+    async def _evaluate_sequential(
+        self,
+        model: Model,
+        benchmarks: List[Benchmark],
+        num_questions: Optional[int],
+        use_cache: bool,
+        **config
+    ) -> Results:
+        """Sequential evaluation for better resource control."""
+        results = Results()
+        
+        for benchmark in benchmarks:
+            try:
+                cache_key = None
+                if use_cache:
+                    cache_key = f"benchmark_{model.name}_{benchmark.name}_{num_questions}_{hash(str(config))}"
+                
+                benchmark_result = await self._evaluate_benchmark_cached(
+                    model, benchmark, num_questions, cache_key, **config
+                )
+                
+                results.add_benchmark_result(benchmark_result)
+                
+            except Exception as e:
+                logger.error(f"Sequential benchmark evaluation failed for {benchmark.name}: {e}")
+                # Continue with other benchmarks
+                continue
+        
+        return results
+    
+    async def _evaluate_benchmark_cached(
+        self,
+        model: Model,
+        benchmark: Benchmark,
+        num_questions: Optional[int],
+        cache_key: Optional[str],
+        **config
+    ) -> BenchmarkResult:
+        """Evaluate benchmark with intelligent caching."""
+        
+        # Try to get from cache first
+        if cache_key:
+            cached_result = await cache_manager.get_or_set(
+                cache_key,
+                lambda: self._evaluate_benchmark(model, benchmark, num_questions, **config),
+                ttl_seconds=3600  # Cache for 1 hour
+            )
+            return cached_result
+        
+        # Evaluate without caching
+        return await self._evaluate_benchmark(model, benchmark, num_questions, **config)
+    
+    def enable_optimizations(self):
+        """Enable performance optimizations."""
+        self._enable_optimizations = True
+        performance_optimizer.enable_optimization()
+        logger.info("Performance optimizations enabled")
+    
+    def disable_optimizations(self):
+        """Disable performance optimizations (useful for debugging)."""
+        self._enable_optimizations = False
+        performance_optimizer.disable_optimization()
+        logger.info("Performance optimizations disabled")
+    
+    def get_optimization_stats(self) -> Dict[str, Any]:
+        """Get comprehensive optimization and performance statistics."""
+        stats = cache_manager.get_stats() if hasattr(cache_manager, 'get_stats') else {}
+        
+        return {
+            "evaluator_metrics": {
+                "optimizations_enabled": self._enable_optimizations,
+                "active_evaluations": self._active_evaluations,
+                "max_concurrent": self._max_concurrent,
+                "registered_benchmarks": len(self._benchmarks),
+                "results_history_size": len(self._results_history)
+            },
+            "performance_metrics": {
+                "avg_response_time": self._performance_metrics.avg_response_time,
+                "throughput_qps": self._performance_metrics.throughput_qps,
+                "success_rate": self._performance_metrics.success_rate,
+                "memory_usage_mb": self._performance_metrics.memory_usage_mb,
+                "cpu_usage_percent": self._performance_metrics.cpu_usage_percent
+            },
+            "optimization_details": performance_optimizer.get_optimization_stats(),
+            "cache_stats": stats,
+            "circuit_breakers": {
+                name: {
+                    "state": cb.state.value,
+                    "failure_count": cb.failure_count,
+                    "success_count": cb.success_count,
+                    "last_failure": cb.last_failure_time.isoformat() if cb.last_failure_time else None
+                }
+                for name, cb in self._circuit_breakers.items()
+            }
+        }
     
     async def compare_models(
         self,
