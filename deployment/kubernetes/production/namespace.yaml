@@ -1,0 +1,54 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agi-eval-sandbox
+  labels:
+    name: agi-eval-sandbox
+    environment: production
+    app.kubernetes.io/name: agi-eval-sandbox
+    app.kubernetes.io/component: namespace
+    app.kubernetes.io/part-of: agi-eval-platform
+    app.kubernetes.io/managed-by: kubernetes
+    app.kubernetes.io/version: "1.0.0"
+  annotations:
+    description: "AGI Evaluation Sandbox production environment"
+    maintainer: "daniel@terragon.ai"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: agi-eval-sandbox-quota
+  namespace: agi-eval-sandbox
+spec:
+  hard:
+    requests.cpu: "10"
+    requests.memory: 20Gi
+    limits.cpu: "20"
+    limits.memory: 40Gi
+    persistentvolumeclaims: "10"
+    pods: "50"
+    services: "20"
+    secrets: "10"
+    configmaps: "10"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: agi-eval-sandbox-limits
+  namespace: agi-eval-sandbox
+spec:
+  limits:
+  - default:
+      cpu: "1"
+      memory: "2Gi"
+    defaultRequest:
+      cpu: "0.1"
+      memory: "128Mi"
+    type: Container
+  - default:
+      cpu: "2"
+      memory: "4Gi"
+    defaultRequest:
+      cpu: "0.5"
+      memory: "1Gi"
+    type: Pod
