@@ -11,7 +11,7 @@ import asyncio
 import numpy as np
 import math
 import cmath
-from typing import Dict, List, Optional, Any, Tuple, Complex
+from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
@@ -28,7 +28,7 @@ logger = get_logger("quantum_evaluator")
 @dataclass
 class QuantumState:
     """Represents quantum superposition state for evaluation."""
-    amplitude: Complex
+    amplitude: complex
     phase: float
     benchmark_id: str
     model_id: str
