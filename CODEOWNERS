@@ -1,0 +1,56 @@
+# CODEOWNERS for AGI Evaluation Sandbox
+# This file defines code owners for different parts of the repository
+# Code owners are automatically requested for review when PRs are opened
+
+# Global owners - fallback for any file not specified below
+* @danieleschmidt
+
+# Core evaluation engine
+/src/agi_eval_sandbox/core/ @danieleschmidt
+/src/agi_eval_sandbox/evaluator.py @danieleschmidt
+
+# API and backend services
+/src/agi_eval_sandbox/api/ @danieleschmidt
+/api/ @danieleschmidt
+
+# Frontend dashboard
+/dashboard/ @danieleschmidt
+/src/agi_eval_sandbox/dashboard/ @danieleschmidt
+
+# Documentation
+/docs/ @danieleschmidt
+*.md @danieleschmidt
+
+# Infrastructure and deployment
+/deployment/ @danieleschmidt
+/k8s/ @danieleschmidt
+/monitoring/ @danieleschmidt
+docker-compose*.yml @danieleschmidt
+Dockerfile* @danieleschmidt
+Makefile @danieleschmidt
+
+# CI/CD and workflows
+/.github/ @danieleschmidt
+/.pre-commit-config.yaml @danieleschmidt
+/pyproject.toml @danieleschmidt
+/package.json @danieleschmidt
+
+# Security and compliance
+/SECURITY.md @danieleschmidt
+/docs/security/ @danieleschmidt
+
+# Testing
+/tests/ @danieleschmidt
+pytest.ini @danieleschmidt
+playwright.config.ts @danieleschmidt
+
+# Configuration files
+/.env.example @danieleschmidt
+/cliff.toml @danieleschmidt
+/commitlint.config.js @danieleschmidt
+/renovate.json @danieleschmidt
+/sonar-project.properties @danieleschmidt
+
+# Performance and benchmarking
+/performance/ @danieleschmidt
+/src/agi_eval_sandbox/research/ @danieleschmidt
