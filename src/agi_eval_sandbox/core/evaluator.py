@@ -1320,4 +1320,11 @@ class EvalSuite:
         benchmark = CustomBenchmark(name, questions)
         self.register_benchmark(benchmark)
         
+        # Store metadata for analytics
+        self._benchmark_metadata[name] = {
+            "created_at": datetime.now(),
+            "question_count": len(questions),
+            "categories": list(set(q.category for q in questions if q.category))
+        }
+        
         return benchmark
