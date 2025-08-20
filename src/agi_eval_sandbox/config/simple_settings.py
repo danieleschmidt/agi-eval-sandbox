@@ -8,50 +8,57 @@ class SimpleSettings:
     
     def __init__(self):
         # Application
-        self.app_name = os.getenv("APP_NAME", "AGI Evaluation Sandbox")
-        self.debug = os.getenv("DEBUG", "False").lower() == "true"
-        self.version = os.getenv("VERSION", "0.1.0")
+        self.APP_NAME = os.getenv("APP_NAME", "AGI Evaluation Sandbox")
+        self.DEBUG = os.getenv("DEBUG", "False").lower() == "true"
+        self.VERSION = os.getenv("VERSION", "0.1.0")
         
         # API Configuration
-        self.api_host = os.getenv("API_HOST", "0.0.0.0")
-        self.api_port = int(os.getenv("API_PORT", "8080"))
-        self.api_workers = int(os.getenv("API_WORKERS", "4"))
+        self.API_HOST = os.getenv("API_HOST", "0.0.0.0")
+        self.API_PORT = int(os.getenv("API_PORT", "8080"))
+        self.API_WORKERS = int(os.getenv("API_WORKERS", "4"))
         
         # Database
-        self.database_url = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/agi_eval")
-        self.database_echo = os.getenv("DATABASE_ECHO", "False").lower() == "true"
+        self.DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/agi_eval")
+        self.DATABASE_ECHO = os.getenv("DATABASE_ECHO", "False").lower() == "true"
         
         # Redis
-        self.redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        self.REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
         
         # Celery
-        self.celery_broker_url = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/1")
-        self.celery_result_backend = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/2")
+        self.CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/1")
+        self.CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/2")
         
         # Model Providers
-        self.openai_api_key = os.getenv("OPENAI_API_KEY")
-        self.anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
-        self.google_api_key = os.getenv("GOOGLE_API_KEY")
+        self.OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+        self.ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+        self.GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
         
         # Storage
-        self.storage_backend = os.getenv("STORAGE_BACKEND", "local")
-        self.storage_path = os.getenv("STORAGE_PATH", "./data")
-        self.s3_bucket = os.getenv("S3_BUCKET")
-        self.s3_region = os.getenv("S3_REGION")
+        self.STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "local")
+        self.STORAGE_PATH = os.getenv("STORAGE_PATH", "./data")
+        self.S3_BUCKET = os.getenv("S3_BUCKET")
+        self.S3_REGION = os.getenv("S3_REGION")
         
         # Security
-        self.secret_key = os.getenv("SECRET_KEY", "dev-secret-key")
-        self.access_token_expire_minutes = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+        self.SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key")
+        self.ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
         
         # Monitoring
-        self.prometheus_enabled = os.getenv("PROMETHEUS_ENABLED", "True").lower() == "true"
-        self.jaeger_enabled = os.getenv("JAEGER_ENABLED", "False").lower() == "true"
-        self.jaeger_agent_host = os.getenv("JAEGER_AGENT_HOST", "localhost")
-        self.jaeger_agent_port = int(os.getenv("JAEGER_AGENT_PORT", "6831"))
+        self.PROMETHEUS_ENABLED = os.getenv("PROMETHEUS_ENABLED", "True").lower() == "true"
+        self.JAEGER_ENABLED = os.getenv("JAEGER_ENABLED", "False").lower() == "true"
+        self.JAEGER_AGENT_HOST = os.getenv("JAEGER_AGENT_HOST", "localhost")
+        self.JAEGER_AGENT_PORT = int(os.getenv("JAEGER_AGENT_PORT", "6831"))
         
         # Performance
-        self.max_concurrent_evaluations = int(os.getenv("MAX_CONCURRENT_EVALUATIONS", "10"))
-        self.evaluation_timeout = int(os.getenv("EVALUATION_TIMEOUT", "3600"))
+        self.MAX_CONCURRENT_EVALUATIONS = int(os.getenv("MAX_CONCURRENT_EVALUATIONS", "10"))
+        self.EVALUATION_TIMEOUT = int(os.getenv("EVALUATION_TIMEOUT", "3600"))
+        
+        # Logging
+        self.LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+        
+        # Model Configuration
+        self.DEFAULT_TEMPERATURE = float(os.getenv("DEFAULT_TEMPERATURE", "0.7"))
+        self.DEFAULT_MAX_TOKENS = int(os.getenv("DEFAULT_MAX_TOKENS", "1000"))
 
 
 # Global settings instance
