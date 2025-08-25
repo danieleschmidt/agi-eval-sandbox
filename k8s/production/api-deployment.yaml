@@ -1,0 +1,72 @@
+{
+  "apiVersion": "apps/v1",
+  "kind": "Deployment",
+  "metadata": {
+    "name": "agi-eval-api",
+    "namespace": "agi-eval-sandbox"
+  },
+  "spec": {
+    "replicas": 3,
+    "selector": {
+      "matchLabels": {
+        "app": "agi-eval-api"
+      }
+    },
+    "template": {
+      "metadata": {
+        "labels": {
+          "app": "agi-eval-api"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "agi-eval-api",
+            "image": "agi-eval-sandbox:latest",
+            "ports": [
+              {
+                "containerPort": 8080
+              }
+            ],
+            "env": [
+              {
+                "name": "ENVIRONMENT",
+                "value": "production"
+              },
+              {
+                "name": "LOG_LEVEL",
+                "value": "INFO"
+              }
+            ],
+            "resources": {
+              "requests": {
+                "memory": "2Gi",
+                "cpu": "1000m"
+              },
+              "limits": {
+                "memory": "4Gi",
+                "cpu": "2000m"
+              }
+            },
+            "livenessProbe": {
+              "httpGet": {
+                "path": "/health",
+                "port": 8080
+              },
+              "initialDelaySeconds": 30,
+              "periodSeconds": 30
+            },
+            "readinessProbe": {
+              "httpGet": {
+                "path": "/health",
+                "port": 8080
+              },
+              "initialDelaySeconds": 5,
+              "periodSeconds": 10
+            }
+          }
+        ]
+      }
+    }
+  }
+}

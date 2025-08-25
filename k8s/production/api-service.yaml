@@ -1,0 +1,20 @@
+{
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "name": "agi-eval-api-service",
+    "namespace": "agi-eval-sandbox"
+  },
+  "spec": {
+    "selector": {
+      "app": "agi-eval-api"
+    },
+    "ports": [
+      {
+        "port": 80,
+        "targetPort": 8080
+      }
+    ],
+    "type": "ClusterIP"
+  }
+}

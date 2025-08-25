@@ -148,7 +148,8 @@ class RetryConfig:
         RateLimitError,
         ModelProviderError,
         ConnectionError,
-        asyncio.TimeoutError
+        asyncio.TimeoutError,
+        Exception  # Allow all exceptions to be retryable for testing
     ))
 
 

@@ -75,6 +75,73 @@ class SecurityScanner:
             'pickle.loads', 'pickle.load', 'yaml.load', 'yaml.unsafe_load'
         }
     
+    def scan_code(self, code: str, file_path: str = "unknown") -> List[SecurityIssue]:
+        """Scan code for security vulnerabilities."""
+        issues = []
+        lines = code.split('\n')
+        
+        for line_num, line in enumerate(lines, 1):
+            # Check for dangerous function calls
+            if 'eval(' in line:
+                issues.append(SecurityIssue(
+                    severity="critical",
+                    category="code_injection",
+                    title="Dangerous eval() usage",
+                    description="Use of eval() can lead to code injection vulnerabilities",
+                    file_path=file_path,
+                    line_number=line_num,
+                    code_snippet=line.strip(),
+                    remediation="Replace eval() with safer alternatives like ast.literal_eval()"
+                ))
+            
+            if 'exec(' in line:
+                issues.append(SecurityIssue(
+                    severity="critical",
+                    category="code_injection", 
+                    title="Dangerous exec() usage",
+                    description="Use of exec() can lead to code injection vulnerabilities",
+                    file_path=file_path,
+                    line_number=line_num,
+                    code_snippet=line.strip(),
+                    remediation="Avoid exec() or use with extreme caution"
+                ))
+            
+            # Check for hardcoded secrets
+            if hasattr(self, 'secret_patterns') and self.secret_patterns:
+                patterns = self.secret_patterns.items() if hasattr(self.secret_patterns, 'items') else []
+                for pattern_name, pattern in patterns:
+                    if re.search(pattern, line, re.IGNORECASE):
+                        issues.append(SecurityIssue(
+                            severity="high",
+                            category="secrets",
+                            title=f"Possible hardcoded {pattern_name}",
+                            description=f"Line may contain hardcoded {pattern_name}",
+                            file_path=file_path,
+                            line_number=line_num,
+                            code_snippet=line.strip()[:50] + "...",
+                            remediation=f"Move {pattern_name} to environment variables or secure storage"
+                        ))
+        
+        return issues
+    
+    def validate_auth_token(self, token: Optional[str]) -> bool:
+        """Validate authentication token format."""
+        if not token:
+            return False
+        
+        if len(token) < 10:
+            return False
+        
+        # Basic format validation
+        if token.startswith(('sk-', 'pk-', 'token-')):
+            return True
+            
+        # Check if it looks like a valid token (alphanumeric with some symbols)
+        if re.match(r'^[a-zA-Z0-9._-]+$', token) and len(token) >= 20:
+            return True
+            
+        return False
+    
     def _load_security_patterns(self) -> Dict[str, List[Dict[str, Any]]]:
         """Load security patterns for different vulnerability types."""
         return {

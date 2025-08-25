@@ -433,6 +433,82 @@ class SmartCacheManager:
         self.backend = backend or MultiTierCache()
         self.request_patterns: Dict[str, List[float]] = {}
         self.lock = threading.RLock()
+        self._cache = {}
+        self.max_cache_size = 1000
+        self.cache_hits = 0
+        self.cache_misses = 0
+    
+    async def set(self, key: str, value: Any, ttl_seconds: int = 3600) -> None:
+        """Set cache value with TTL."""
+        expiry = time.time() + ttl_seconds
+        self._cache[key] = {
+            'value': value,
+            'expiry': expiry,
+            'access_count': 0,
+            'created_at': time.time()
+        }
+        
+        # Use backend if available
+        if hasattr(self.backend, 'set'):
+            await self.backend.set(key, value, ttl_seconds)
+        
+        # Maintain cache size limit
+        if len(self._cache) > self.max_cache_size:
+            await self._evict_expired_entries()
+    
+    async def get(self, key: str) -> Optional[Any]:
+        """Get cache value."""
+        # Check local cache first
+        if key in self._cache:
+            entry = self._cache[key]
+            # Check if expired
+            if time.time() <= entry['expiry']:
+                entry['access_count'] += 1
+                self.cache_hits += 1
+                return entry['value']
+            else:
+                del self._cache[key]
+        
+        # Try backend
+        if hasattr(self.backend, 'get'):
+            try:
+                value = await self.backend.get(key)
+                if value is not None:
+                    self.cache_hits += 1
+                    return value
+            except Exception:
+                pass
+        
+        self.cache_misses += 1
+        return None
+    
+    async def delete(self, key: str) -> bool:
+        """Delete cache entry."""
+        deleted = False
+        
+        if key in self._cache:
+            del self._cache[key]
+            deleted = True
+        
+        if hasattr(self.backend, 'delete'):
+            try:
+                backend_deleted = await self.backend.delete(key)
+                deleted = deleted or backend_deleted
+            except Exception:
+                pass
+        
+        return deleted
+    
+    async def _evict_expired_entries(self):
+        """Remove expired entries to maintain cache size."""
+        now = time.time()
+        expired_keys = [
+            key for key, entry in self._cache.items()
+            if now > entry['expiry']
+        ]
+        
+        for key in expired_keys:
+            del self._cache[key]
     
     def _generate_cache_key(self, prefix: str, *args, **kwargs) -> str:
         """Generate cache key from function arguments."""
