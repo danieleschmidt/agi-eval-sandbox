@@ -1,0 +1,114 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "AGI Evaluation Sandbox - Production Metrics",
+    "tags": [
+      "agi-eval",
+      "production"
+    ],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "API Response Time",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "http_request_duration_seconds{job=\"agi-eval-api\"}",
+            "format": "time_series",
+            "legendFormat": "{{method}} {{endpoint}}"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Seconds",
+            "min": 0
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 0
+        }
+      },
+      {
+        "id": 2,
+        "title": "Request Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{job=\"agi-eval-api\"}[5m])",
+            "format": "time_series",
+            "legendFormat": "{{method}} {{status}}"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Requests/sec",
+            "min": 0
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 0
+        }
+      },
+      {
+        "id": 3,
+        "title": "Error Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{job=\"agi-eval-api\",status=~\"4..|5..\"}[5m])",
+            "format": "time_series",
+            "legendFormat": "{{status}}"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Errors/sec",
+            "min": 0
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 8
+        }
+      },
+      {
+        "id": 4,
+        "title": "Active Evaluations",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "agi_eval_active_evaluations",
+            "format": "time_series",
+            "legendFormat": "Active Evaluations"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Count",
+            "min": 0
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 8
+        }
+      }
+    ],
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "refresh": "5s"
+  }
+}

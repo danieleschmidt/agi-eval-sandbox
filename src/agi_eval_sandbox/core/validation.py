@@ -503,30 +503,50 @@ class InputValidator:
         
         return parsed
     
-    @classmethod
-    def sanitize_user_input(cls, text: str) -> str:
-        """Sanitize user input by removing potentially dangerous content."""
+    def sanitize_user_input(self, text: str) -> str:
+        """Enhanced sanitization for user input with comprehensive security."""
         if not isinstance(text, str):
             return str(text)
         
-        # Remove HTML tags
-        text = re.sub(r'<[^>]+>', '', text)
+        # HTML escape to prevent XSS
+        import html
+        sanitized = html.escape(text, quote=True)
         
-        # Remove script content
-        text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.IGNORECASE | re.DOTALL)
+        # Remove SQL injection patterns
+        sql_patterns = [
+            r"('|(\\')|(;)|(--)|(/\*|(\*/))",
+            r"(\b(ALTER|CREATE|DELETE|DROP|EXEC(UTE)?|INSERT|MERGE|SELECT|UNION|UPDATE)\b)",
+        ]
         
-        # Remove JavaScript protocols
-        text = re.sub(r'javascript:', '', text, flags=re.IGNORECASE)
-        text = re.sub(r'vbscript:', '', text, flags=re.IGNORECASE)
+        for pattern in sql_patterns:
+            sanitized = re.sub(pattern, '', sanitized, flags=re.IGNORECASE)
         
-        # Remove event handlers
-        text = re.sub(r'on\w+\s*=\s*["\'][^"\']*["\']', '', text, flags=re.IGNORECASE)
+        # Remove template injection patterns
+        template_patterns = [
+            r'\{\{.*?\}\}',  # Jinja2/Django templates
+            r'\$\{.*?\}',    # JNDI/EL expressions
+            r'<%.*?%>',      # JSP/ASP tags
+        ]
         
-        # Limit length to prevent DoS
-        if len(text) > 10000:
-            text = text[:10000] + "..."
+        for pattern in template_patterns:
+            sanitized = re.sub(pattern, '', sanitized, flags=re.IGNORECASE)
         
-        return text.strip()
+        # Remove dangerous JavaScript patterns
+        js_patterns = [
+            r'<script[^>]*>.*?</script>',
+            r'javascript:',
+            r'vbscript:',
+            r'on\w+\s*=',
+        ]
+        
+        for pattern in js_patterns:
+            sanitized = re.sub(pattern, '', sanitized, flags=re.IGNORECASE)
+        
+        # Length limiting to prevent DoS
+        if len(sanitized) > 10000:  # 10KB limit
+            sanitized = sanitized[:10000] + "... [truncated]"
+        
+        return sanitized.strip()
 
 
 class ResourceValidator:
