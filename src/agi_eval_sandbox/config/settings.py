@@ -2,7 +2,12 @@
 
 import os
 from typing import Optional
-from pydantic import BaseSettings, Field
+try:
+    from pydantic_settings import BaseSettings
+    from pydantic import Field
+except ImportError:
+    # Fallback for older pydantic versions
+    from pydantic import BaseSettings, Field
 
 
 class Settings(BaseSettings):
@@ -12,6 +17,9 @@ class Settings(BaseSettings):
     app_name: str = Field(default="AGI Evaluation Sandbox", env="APP_NAME")
     debug: bool = Field(default=False, env="DEBUG")
     version: str = Field(default="0.1.0", env="VERSION")
+    
+    class Config:
+        env_file = ".env"
     
     # API Configuration
     api_host: str = Field(default="0.0.0.0", env="API_HOST")
@@ -49,20 +57,26 @@ class Settings(BaseSettings):
     
     # Monitoring
     prometheus_enabled: bool = Field(default=True, env="PROMETHEUS_ENABLED")
-    jaeger_enabled: bool = Field(default=False, env="JAEGER_ENABLED")
-    jaeger_agent_host: str = Field(default="localhost", env="JAEGER_AGENT_HOST")
-    jaeger_agent_port: int = Field(default=6831, env="JAEGER_AGENT_PORT")
+    metrics_port: int = Field(default=9090, env="METRICS_PORT")
     
-    # Performance
-    max_concurrent_evaluations: int = Field(default=10, env="MAX_CONCURRENT_EVALUATIONS")
-    evaluation_timeout: int = Field(default=3600, env="EVALUATION_TIMEOUT")  # seconds
-    
-    class Config:
-        """Pydantic configuration."""
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
+    # Logging
+    log_level: str = Field(default="INFO", env="LOG_LEVEL")
+    log_format: str = Field(default="structured", env="LOG_FORMAT")
 
 
 # Global settings instance
-settings = Settings()
+_settings: Optional[Settings] = None
+
+
+def get_settings() -> Settings:
+    """Get application settings singleton."""
+    global _settings
+    if _settings is None:
+        _settings = Settings()
+    return _settings
+
+
+def reset_settings() -> None:
+    """Reset settings singleton for testing."""
+    global _settings
+    _settings = None
