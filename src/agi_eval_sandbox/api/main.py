@@ -26,6 +26,7 @@ from .models import (
     CustomBenchmarkRequest,
     CustomBenchmarkResponse
 )
+from .progressive_endpoints import router as progressive_router
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -68,6 +69,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include progressive quality gates router
+app.include_router(progressive_router, prefix="/api/v1")
 
 
 @app.get("/")

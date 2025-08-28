@@ -32,7 +32,9 @@ All models support:
 
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Any
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
 import asyncio
 import json
 import time
@@ -870,3 +872,20 @@ def validate_model_config(provider: str, model_name: str, api_key: Optional[str]
         return True
     except Exception:
         return False
+
+
+# Progressive Quality Gates Support Models
+
+@dataclass
+class EvaluationContext:
+    """Context information for evaluation runs."""
+    model_name: str
+    model_provider: str
+    benchmarks: List[str]
+    timestamp: datetime
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    
+    def __post_init__(self):
+        """Ensure timestamp is datetime object."""
+        if isinstance(self.timestamp, str):
+            self.timestamp = datetime.fromisoformat(self.timestamp)
