@@ -1,1 +1,0 @@
-"""FastAPI backend for AGI Evaluation Sandbox."""
